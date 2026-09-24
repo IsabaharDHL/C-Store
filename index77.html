@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="جرد المستودع">
+<meta name="theme-color" content="#052447">
+<title>نظام جرد مستودع DHL</title>
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+:root{
+  --navy:#052447; --navy2:#0a3564; --line:#1f4c7c; --gold:#e3b04b;
+  --txt:#f3f6fa; --mut:#9db2c9;
+  --green:#1f9d58; --orange:#e2791f; --red:#e25555;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;background:var(--navy);color:var(--txt);
+  font-family:'IBM Plex Sans Arabic',-apple-system,'Segoe UI',Tahoma,sans-serif;font-size:16px;line-height:1.5}
+body{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body.noscroll{overflow:hidden}
+body::before{content:"";position:fixed;top:-100px;height:calc(100vh + 400px);left:-6px;width:30px;background:var(--gold);opacity:.9;transform:skewX(-3deg);transform-origin:top left;pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;width:100%;max-width:560px;margin:0 auto;padding:18px max(18px, env(safe-area-inset-right, 0px)) 40px max(18px, env(safe-area-inset-left, 0px))}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.mut{color:var(--mut)} .sm{font-size:.85rem} .center-t{text-align:center}
+h2{margin:0 0 6px;font-size:1.35rem} h3{margin:0 0 12px;font-size:1.1rem}
+label{display:block;margin:14px 0 6px;font-weight:500}
+.inp{width:100%;background:#fff;color:#0b1f36;border:0;border-radius:12px;padding:14px;font:inherit;font-size:17px}
+textarea.inp{resize:vertical}
+select.inp{appearance:none;-webkit-appearance:none}
+#xlsBox .grid2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+#xlsBox .grid2>div{min-width:0}
+#xlsBox input[type=date].inp{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:12px 8px;font-size:15px;text-align:center}
+#xlsBox input[type=date]::-webkit-date-and-time-value{text-align:center}
+.btn{display:block;width:100%;margin-top:18px;border:0;border-radius:12px;padding:15px;font-size:1.05rem;font-weight:700}
+.btn.gold{background:var(--gold);color:#1b1300}
+.btn.gold:disabled{opacity:.4}
+.btn.line{background:transparent;color:var(--txt);border:1.5px solid var(--line)}
+.ghost{background:transparent;border:1.5px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 14px;font-size:.95rem}
+.card{background:var(--navy2);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:16px}
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh;gap:14px}
+.spinner{width:34px;height:34px;border:4px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:sp 0.9s linear infinite;margin:10px auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2.5s}}
+
+.brand{text-align:center;margin:26px 0 8px}
+.brand .seal{width:96px;height:96px;border-radius:50%;display:block;margin:0 auto 12px}
+.brand .t1{font-size:1.5rem;font-weight:700}
+.brand .t2{color:var(--mut)}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px}
+.hello{font-size:1.2rem;font-weight:700}
+
+.search{position:relative}
+.search .inp{padding-inline-start:46px;font-size:18px;padding-top:17px;padding-bottom:17px;border-radius:14px}
+.search svg{position:absolute;inset-inline-start:15px;top:50%;transform:translateY(-50%);width:22px;height:22px;color:#6b7f95}
+#res{margin-top:4px}
+.res-h{margin:14px 2px 4px;color:var(--mut);font-size:.9rem}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.actions{margin-top:18px}
+.big-btn{border:0;border-radius:18px;min-height:150px;color:#fff;font-size:1.15rem;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:14px}
+.big-btn svg{width:42px;height:42px}
+.big-btn.add{background:var(--green)}
+.big-btn.del{background:var(--orange)}
+.big-btn:active{transform:scale(.98)}
+.wide-btn{width:100%;margin-top:12px;border:1.5px solid var(--line);background:var(--navy2);color:var(--txt);border-radius:16px;padding:17px;font-size:1.1rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
+.wide-btn svg{width:22px;height:22px}
+.wide-btn.adm{border-color:var(--gold);color:var(--gold);background:transparent}
+.stat{width:100%;margin-top:14px;background:transparent;border:0;color:var(--mut);font-size:.95rem;padding:8px}
+.stat b{color:var(--txt)}
+
+.pc,.lg{background:var(--navy2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:10px}
+.pc.in{border-inline-start:5px solid var(--green)}
+.pc.out{border-inline-start:5px solid var(--orange)}
+.pc-h,.lg-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.rno{font-size:1.25rem;font-weight:700;direction:ltr;text-align:right}
+.yr{color:var(--mut);font-weight:500;font-size:1rem}
+.badge,.tag{font-size:.8rem;font-weight:700;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.b-in,.t-add{background:rgba(31,157,88,.2);color:#6fe0a0}
+.b-out,.t-del{background:rgba(226,121,31,.2);color:#ffb27a}
+.t-login{background:rgba(157,178,201,.15);color:var(--mut)}
+.t-idle{background:rgba(226,85,85,.2);color:#ff9a9a}
+.row{display:flex;gap:10px;margin-top:4px;font-size:.95rem}
+.row span{color:var(--mut);min-width:108px;flex-shrink:0}
+.row b{font-weight:500;word-break:break-word}
+.shelf{margin-top:8px;font-size:1.05rem}
+.shelf b{color:var(--gold);font-size:1.4rem;margin-inline-start:6px}
+.meta{margin-top:8px;color:var(--mut);font-size:.85rem}
+.lg.idle{border-color:rgba(226,85,85,.55)}
+.when{color:var(--gold);font-size:.9rem;margin-bottom:6px}
+.shelf-s{font-size:.9rem;color:var(--gold);font-weight:500;margin-inline-start:8px}
+
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.chipb{flex-shrink:0;background:transparent;border:1.5px solid var(--line);color:var(--txt);border-radius:999px;padding:7px 14px;font-size:.9rem}
+.chipb.on{background:var(--gold);border-color:var(--gold);color:#1b1300;font-weight:700}
+
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tab{background:transparent;border:1.5px solid var(--line);color:var(--txt);border-radius:12px;padding:11px;font-weight:700}
+.tab.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
+.emp{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+.emp:first-child{border-top:0}
+.emp .who{flex:1;min-width:0}
+.emp .nm{font-weight:700}
+.emp .no{color:var(--mut);font-size:.85rem;direction:ltr;text-align:right}
+.emp .adm{color:var(--gold);font-size:.8rem;font-weight:700;margin-inline-start:6px}
+.mini{background:transparent;border:1.5px solid var(--line);color:var(--txt);border-radius:9px;padding:6px 10px;font-size:.8rem}
+.mini.dng{border-color:rgba(226,85,85,.6);color:#ff9a9a}
+.chk{display:flex;align-items:center;gap:10px;font-weight:500}
+.chk input{width:22px;height:22px}
+details summary{font-weight:700;cursor:pointer}
+.bcimg{display:block;width:100%;max-width:420px;margin:16px auto 0;border-radius:8px;background:#fff}
+
+.flow{position:fixed;inset:0;z-index:50;background:var(--navy);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.flow .fh{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:4px solid var(--green)}
+.flow.del .fh{border-bottom-color:var(--orange)}
+.flow .x{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:transparent;color:var(--txt);font-size:1.3rem;flex-shrink:0}
+.flow .ft{font-size:1.15rem;font-weight:700;flex:1}
+.flow .steps{color:var(--mut);font-size:.85rem}
+.flow .fb{flex:1;overflow-y:auto;padding:18px;max-width:560px;width:100%;margin:0 auto}
+.prompt{font-size:1.3rem;font-weight:700;text-align:center;margin:2px 0 8px}
+.reader{width:100%;height:170px;min-height:170px;max-height:170px;border-radius:14px;overflow:hidden;background:#000}
+.reader video{width:100%!important;height:170px!important;object-fit:cover;border-radius:14px}
+.scanmsg{display:none;margin-top:12px;background:rgba(226,85,85,.18);border:1px solid rgba(226,85,85,.6);color:#ffc2c2;border-radius:12px;padding:12px;text-align:center;font-weight:500}
+.scanmsg.show{display:block}
+.flash-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:7px;border:1.5px solid var(--gold);background:transparent;color:var(--gold);border-radius:12px;padding:11px;font:inherit;font-weight:700}
+.flash-btn.on{background:var(--gold);color:#1b1300}
+.flash-btn:disabled{opacity:.45}
+.ctx{background:var(--navy2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-weight:700;direction:rtl}
+.req{color:var(--red)}
+.res-box{text-align:center;padding:22px 6px 6px}
+.res-box .ico{width:84px;height:84px;border-radius:50%;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:2.6rem;font-weight:700}
+.res-box.ok .ico{background:var(--green)}
+.res-box.bad .ico{background:var(--red)}
+.res-box .row{text-align:right;justify-content:flex-start}
+.err-box{background:rgba(226,85,85,.15);border:1px solid rgba(226,85,85,.6);border-radius:12px;padding:14px;margin-top:16px}
+
+footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);font-size:.85rem;padding:10px 0 22px;letter-spacing:.02em}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);
+  background:#0e2f55;border:1px solid var(--line);color:var(--txt);padding:12px 18px;border-radius:12px;opacity:0;transition:.25s;z-index:100;max-width:90vw;text-align:center;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--red);background:#3a1620}
+
+/* ---------- animation ---------- */
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes slideDown{from{transform:none}to{transform:translateY(100%)}}
+@keyframes pop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes shake{0%,100%{transform:none}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+@keyframes flash{0%{box-shadow:0 0 0 0 rgba(31,157,88,.9)}100%{box-shadow:0 0 0 14px rgba(31,157,88,0)}}
+@keyframes pulseLine{0%,100%{opacity:.35}50%{opacity:1}}
+.wrap{animation:fadeUp .38s cubic-bezier(.2,.8,.2,1) both}
+.actions .big-btn,.wide-btn,.stat{animation:fadeUp .45s cubic-bezier(.2,.8,.2,1) both}
+.actions .big-btn:nth-child(1){animation-delay:.06s}.actions .big-btn:nth-child(2){animation-delay:.12s}
+#bLog{animation-delay:.18s}#bAdm{animation-delay:.24s}.stat{animation-delay:.3s}
+.big-btn,.wide-btn,.btn,.chipb,.tab,.mini,.ghost{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s}
+.big-btn{box-shadow:0 8px 22px rgba(0,0,0,.28)}
+.big-btn:active,.wide-btn:active,.btn:active,.chipb:active,.tab:active,.mini:active,.ghost:active{transform:scale(.96)}
+.big-btn:active{box-shadow:0 3px 10px rgba(0,0,0,.3)}
+.pc,.lg,.emp,.res-h{animation:fadeUp .35s cubic-bezier(.2,.8,.2,1) both}
+.pc:nth-child(2),.lg:nth-child(2){animation-delay:.04s}.pc:nth-child(3),.lg:nth-child(3){animation-delay:.08s}
+.pc:nth-child(4),.lg:nth-child(4){animation-delay:.12s}.pc:nth-child(5),.lg:nth-child(5){animation-delay:.16s}
+.pc:nth-child(n+6),.lg:nth-child(n+6){animation-delay:.2s}
+.flow{animation:slideUp .34s cubic-bezier(.2,.8,.2,1) both}
+.flow.closing{animation:slideDown .24s ease-in both}
+.fb>*{animation:fadeUp .3s cubic-bezier(.2,.8,.2,1) both}
+.reader{position:relative;transition:box-shadow .2s}
+.reader.hit{animation:flash .5s ease-out}
+.reader::after{content:"";position:absolute;left:8%;right:8%;top:50%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:pulseLine 1.2s ease-in-out infinite;pointer-events:none;z-index:5}
+.scanmsg.show{animation:shake .4s ease}
+.res-box .ico{animation:pop .5s cubic-bezier(.2,.8,.2,1) both}
+.res-box .ico svg{width:46px;height:46px}
+.res-box .ico path{stroke-dasharray:40;stroke-dashoffset:40;animation:draw .4s .3s ease-out forwards}
+.res-box h2{animation:fadeUp .4s .2s both}
+.res-box .row{animation:fadeUp .4s .3s both}
+.steps{transition:opacity .2s}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0s!important;transition-duration:.01ms!important}
+  .res-box .ico path{stroke-dashoffset:0}}
+.lists{margin-top:12px}
+.list-btn{border:1.5px solid var(--line);background:var(--navy2);color:var(--txt);border-radius:16px;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:700;font-size:1.05rem;animation:fadeUp .45s .22s cubic-bezier(.2,.8,.2,1) both;transition:transform .15s ease}
+.list-btn:active{transform:scale(.96)}
+.list-btn.in{border-top:4px solid var(--green)}
+.list-btn.out{border-top:4px solid var(--orange)}
+.lb-n{font-size:1.6rem;line-height:1.1}
+.list-btn.in .lb-n{color:#6fe0a0}.list-btn.out .lb-n{color:#ffb27a}
+.xls-btn{margin-top:12px;border-color:#1f7a45;color:#8fe3b3}
+.alert-big{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#fff;text-align:center;padding:16px;border-radius:14px;background:rgba(205,30,30,.94);animation:redFlash .7s ease-in-out 4}
+.alert-big .at{font-size:2rem;font-weight:700;line-height:1.2}
+.alert-big .ad{font-size:1.05rem;opacity:.95}
+.alert-big .ai{width:56px;height:56px;border-radius:50%;background:#fff;color:#c21e1e;font-size:2.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;animation:pop .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes redFlash{0%,100%{background:rgba(205,30,30,.94)}50%{background:rgba(255,70,70,1)}}
+.flow.alarm .fh{border-bottom-color:var(--red)!important}
+.flow.alarm{box-shadow:inset 0 0 0 6px var(--red)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<footer class="credit" dir="ltr">Powered by Isa Bahar</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, collection, query, orderBy, limit, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD3BMLeDO6UpzBwYO4xWwCqoYZKKdSdfk4",
+  authDomain: "new-store-project-8b00e.firebaseapp.com",
+  projectId: "new-store-project-8b00e",
+  storageBucket: "new-store-project-8b00e.firebasestorage.app",
+  messagingSenderId: "938683774556",
+  appId: "1:938683774556:web:f0e6d2b900a52ed9cf9899"
+};
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+
+/* ---------- helpers ---------- */
+const LS = 'dhl_store_session';
+const $ = s => document.querySelector(s);
+const on = (s, ev, fn) => { const el = $(s); if (el) el.addEventListener(ev, fn); };
+const val = s => ($(s)?.value || '').trim();
+const toEn = s => String(s ?? '')
+  .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+  .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+const digits = s => toEn(s).replace(/\D/g, '');
+
+/* أي رقم ينكتب بأي لغة يتحول إنجليزي على طول */
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (!t.matches || !t.matches('input, textarea')) return;
+  const v = t.value, n = toEn(v);
+  if (n !== v) {
+    const pos = t.selectionStart;
+    t.value = n;
+    try { t.setSelectionRange(pos, pos); } catch {}
+  }
+}, true);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const view = html => { $('#app').innerHTML = html; window.scrollTo(0, 0); };
+
+const ICON = {
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 9v6M9 12h6"/></svg>',
+  del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>',
+  log: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  adm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>'
+};
+
+let toastT;
+function toast(msg, type = '') {
+  const t = $('#toast'); t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3200);
+}
+function errMsg(e) {
+  const c = e?.code || '';
+  if (c.includes('permission-denied')) return 'قاعدة البيانات رفضت العملية. تأكد إن قواعد Firestore منشورة.';
+  if (c.includes('unavailable')) return 'ما في اتصال بالإنترنت. حاول مرة ثانية.';
+  if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) return 'فعّل Anonymous في Firebase ← Authentication.';
+  return e?.message || String(e);
+}
+const fail = e => { console.error(e); toast(errMsg(e), 'err'); };
+
+function shiftOf(d = new Date()) {
+  const h = d.getHours();
+  if (h >= 7 && h < 15) return 'شفت النهار';
+  if (h >= 15 && h < 22) return 'شفت أول الليل';
+  return 'شفت آخر الليل';
+}
+/* تاريخ الشفت: اليوم ما يتغير إلا الساعة 7 الصبح.
+   أي حركة من 12 الليل لين 6:59 الصبح تنحسب على تاريخ اليوم اللي قبله */
+function shiftDay(d = new Date()) {
+  const x = new Date(d);
+  if (x.getHours() < 7) x.setDate(x.getDate() - 1);
+  return x;
+}
+const pad2 = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+function fmt(ts) {
+  if (!ts) return '—';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const s = shiftDay(d);
+  const date = `${pad2(s.getDate())}/${pad2(s.getMonth() + 1)}/${s.getFullYear()}`;
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `<span dir="ltr">${date}</span>، ${shiftOf(d)}، الساعة <span dir="ltr">${time}</span>`;
+}
+function normAr(s) {
+  return toEn(s).toLowerCase()
+    .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+    .replace(/[\u064B-\u0652\u0640]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/* وصل الأمانة: 0 + سنة(4) + منفذ(4) + رقم الوصل  مثال 020262201P56 */
+function parseReceipt(raw) {
+  const s = toEn(raw).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const m = s.match(/^0*(20\d{2})(\d{4})([A-Z]+\d+)$/);
+  if (!m) return null;
+  return { raw: s, year: m[1], port: m[2], receipt: m[3], id: `${m[1]}_${m[3]}` };
+}
+/* باركود الرف: SH-A1 */
+function parseShelf(raw) {
+  const s = toEn(raw).toUpperCase().replace(/\s/g, '');
+  const m = s.match(/^SH-?([A-Z])([1-9]\d*)$/);
+  return m ? `${m[1]}${m[2]}` : null;
+}
+
+let actx;
+function buzz(ok) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 1250 : 280; g.gain.value = 0.15;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.12 : 0.35));
+  } catch {}
+  try { navigator.vibrate && navigator.vibrate(ok ? 60 : [90, 60, 90]); } catch {}
+}
+
+/* ---------- session ---------- */
+let me = null, sessionId = null, parcels = [], unsubParcels = null, booted = false;
+
+const logFields = () => ({ empNo: me.no, empName: me.name, shift: shiftOf(), shiftDate: ymd(shiftDay()), sessionId, at: serverTimestamp() });
+
+async function employeesEmpty() {
+  const s = await getDocs(query(collection(db, 'employees'), limit(1)));
+  return s.empty;
+}
+async function restore() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS) || 'null');
+    if (!s) return false;
+    const d = await getDoc(doc(db, 'employees', s.no));
+    if (!d.exists()) { localStorage.removeItem(LS); return false; }
+    me = { no: s.no, name: d.data().name, isAdmin: !!d.data().isAdmin };
+    sessionId = s.sessionId;
+    return true;
+  } catch { return false; }
+}
+async function doLogin(no) {
+  const s = await getDoc(doc(db, 'employees', no));
+  if (!s.exists()) { toast('الرقم الشخصي غير مسجل في النظام', 'err'); return; }
+  const d = s.data();
+  me = { no, name: d.name, isAdmin: !!d.isAdmin };
+  sessionId = uid();
+  localStorage.setItem(LS, JSON.stringify({ no, sessionId }));
+  await setDoc(doc(collection(db, 'logs')), { type: 'login', ...logFields() });
+  renderHome();
+}
+function logout() {
+  localStorage.removeItem(LS);
+  if (unsubParcels) { unsubParcels(); unsubParcels = null; }
+  me = null; sessionId = null; parcels = [];
+  renderLogin();
+}
+
+/* ---------- screens ---------- */
+const brand = () => `<div class="brand"><img src="icon.png" alt="" class="seal"><div class="t1">نظام جرد مستودع DHL</div><div class="t2">شؤون الجمارك · قسم جمارك DHL</div></div>`;
+
+function renderBoot(msg = 'جاري الاتصال…') {
+  view(`<div class="wrap"><div class="center"><div class="spinner"></div><div class="mut">${esc(msg)}</div></div></div>`);
+}
+
+function renderSetup() {
+  view(`<div class="wrap">${brand()}
+    <div class="card"><h2>تسجيل أول أدمن</h2>
+      <p class="mut sm">النظام جديد وما فيه موظفين. سجّل نفسك كأدمن، وبعدها تضيف الباقين من شاشة الإدارة.</p>
+      <label for="sName">الاسم</label><input id="sName" class="inp" autocomplete="off">
+      <label for="sNo">الرقم الشخصي</label><input id="sNo" class="inp" inputmode="numeric" autocomplete="off">
+      <button id="sGo" class="btn gold">إنشاء حساب الأدمن</button>
+    </div></div>`);
+  on('#sGo', 'click', async () => {
+    const name = val('#sName'), no = digits(val('#sNo'));
+    if (!name || !no) return toast('عبّئ الاسم والرقم الشخصي', 'err');
+    try {
+      if (!(await employeesEmpty())) { toast('فيه أدمن مسجل مسبقاً، سجّل دخول'); return renderLogin(); }
+      await setDoc(doc(db, 'employees', no), { name, isAdmin: true, createdAt: serverTimestamp() });
+      await doLogin(no);
+    } catch (e) { fail(e); }
+  });
+}
+
+function renderLogin() {
+  view(`<div class="wrap">${brand()}
+    <div class="card"><h2>تسجيل الدخول</h2>
+      <label for="lNo">الرقم الشخصي</label>
+      <input id="lNo" class="inp" inputmode="numeric" autocomplete="off" enterkeyhint="go">
+      <button id="lGo" class="btn gold">دخول</button>
+    </div></div>`);
+  let busy = false;
+  const go = async () => {
+    if (busy) return;
+    const no = digits(val('#lNo'));
+    if (!no) return toast('أدخل الرقم الشخصي', 'err');
+    busy = true; const b = $('#lGo'); if (b) { b.disabled = true; b.textContent = 'جاري الدخول…'; }
+    try { await doLogin(no); } catch (e) { fail(e); }
+    busy = false; const b2 = $('#lGo'); if (b2) { b2.disabled = false; b2.textContent = 'دخول'; }
+  };
+  on('#lGo', 'click', go);
+  on('#lNo', 'keydown', e => { if (e.key === 'Enter') go(); });
+}
+
+function startParcels() {
+  if (unsubParcels) return;
+  unsubParcels = onSnapshot(collection(db, 'parcels'), snap => {
+    parcels = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const ci = $('#cntIn'); if (ci) ci.textContent = parcels.filter(p => p.status === 'in').length;
+    const co = $('#cntOut'); if (co) co.textContent = parcels.filter(p => p.status === 'out').length;
+    const q = $('#q'); if (q && q.value.trim()) runSearch(q.value);
+    if (typeof drawList === 'function' && $('#plist')) drawList();
+  }, fail);
+}
+
+function parcelCard(p) {
+  const isIn = p.status === 'in';
+  return `<div class="pc ${isIn ? 'in' : 'out'}">
+    <div class="pc-h"><div class="rno">${esc(p.receipt)} <span class="yr">/ ${esc(p.year)}</span></div>
+      <span class="badge ${isIn ? 'b-in' : 'b-out'}">${isIn ? 'في المستودع' : 'مسلّم'}</span></div>
+    <div class="row"><span>المحتويات</span><b>${esc(p.contents)}</b></div>
+    ${isIn
+      ? `<div class="shelf">الرف<b>${esc(p.shelf)}</b></div>
+         <div class="meta">أدخله ${esc(p.addedByName)}، ${fmt(p.addedAt)}</div>`
+      : `<div class="row"><span>المستلم</span><b>${esc(p.deliveredTo)}</b></div>
+         <div class="row"><span>الكتاب / الإشعار</span><b>${esc(p.deliveryRef)}</b></div>
+         <div class="row"><span>كان على الرف</span><b>${esc(p.shelf)}</b></div>
+         <div class="meta">سلّمه ${esc(p.deliveredByName)}، ${fmt(p.deliveredAt)}</div>`}
+  </div>`;
+}
+
+function runSearch(raw) {
+  const res = $('#res'); if (!res) return;
+  const q = normAr(raw);
+  if (!q) { res.innerHTML = ''; return; }
+  const list = parcels.filter(p => normAr(p.receipt).includes(q) || normAr(p.contents).includes(q))
+    .sort((a, b) => (a.status === b.status ? (b.year || '').localeCompare(a.year || '') : a.status === 'in' ? -1 : 1));
+  res.innerHTML = list.length
+    ? `<div class="res-h">${list.length} نتيجة</div>` + list.slice(0, 60).map(parcelCard).join('')
+    : `<div class="res-h">ما في طرد بهذا الرقم أو المحتوى</div>`;
+}
+
+function renderHome() {
+  startParcels();
+  view(`<div class="wrap">
+    <header class="top">
+      <div><div class="hello">${esc(me.name)}</div><div class="mut sm">${shiftOf()}${me.isAdmin ? '، أدمن' : ''}</div></div>
+      <button id="out" class="ghost">خروج</button>
+    </header>
+    <div class="search">${ICON.search}<input id="q" class="inp" type="search" placeholder="ابحث برقم الوصل أو المحتويات" autocomplete="off" enterkeyhint="search" aria-label="بحث"></div>
+    <div id="res"></div>
+    <div class="grid2 actions">
+      <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
+      <button id="bDel" class="big-btn del">${ICON.del}تسليم طرد</button>
+    </div>
+    <button id="bLog" class="wide-btn">${ICON.log}السجل</button>
+    <div class="grid2 lists">
+      <button id="bIn" class="list-btn in"><span class="lb-t">المحجوزات</span><span class="lb-n" id="cntIn">${parcels.length ? parcels.filter(p => p.status === 'in').length : '…'}</span></button>
+      <button id="bOut" class="list-btn out"><span class="lb-t">المسلّمة</span><span class="lb-n" id="cntOut">${parcels.length ? parcels.filter(p => p.status === 'out').length : '…'}</span></button>
+    </div>
+    ${me.isAdmin ? `<button id="bAdm" class="wide-btn adm">${ICON.adm}الإدارة</button>` : ''}
+  </div>`);
+  on('#out', 'click', logout);
+  on('#q', 'input', e => runSearch(e.target.value));
+  on('#bAdd', 'click', flowAdd);
+  on('#bDel', 'click', flowDeliver);
+  on('#bLog', 'click', renderLog);
+  on('#bAdm', 'click', renderAdmin);
+  on('#bIn', 'click', () => renderList('in'));
+  on('#bOut', 'click', () => renderList('out'));
+}
+
+/* ---------- المحجوزات / المسلّمة ---------- */
+let drawList = null;
+function renderList(kind) {
+  const isIn = kind === 'in';
+  view(`<div class="wrap">
+    <header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">${isIn ? 'المحجوزات' : 'المسلّمة'}</div><span style="width:60px"></span></header>
+    <div class="search">${ICON.search}<input id="lq" class="inp" type="search" placeholder="فلترة برقم الوصل أو المحتويات أو الرف" autocomplete="off" aria-label="فلترة"></div>
+    <button id="xls" class="btn line xls-btn">تصدير الجرد Excel</button>
+    <div id="xlsBox" class="card" hidden>
+      <h3>تصدير الجرد</h3>
+      <div class="grid2">
+        <div><label for="xFrom">من تاريخ</label><input id="xFrom" type="date" class="inp"></div>
+        <div><label for="xTo">إلى تاريخ</label><input id="xTo" type="date" class="inp"></div>
+      </div>
+      <p class="mut sm">يطلع كل الطرود اللي انحجزت بين التاريخين، المحجوزة والمسلّمة.</p>
+      <button id="xGo" class="btn gold">تصدير</button>
+    </div>
+    <div id="plist"></div></div>`);
+  on('#back', 'click', () => { drawList = null; renderHome(); });
+  on('#xls', 'click', () => {
+    const box = $('#xlsBox'); box.hidden = !box.hidden;
+    if (!box.hidden && !$('#xFrom').value) {
+      const t = shiftDay(new Date());
+      $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1));
+      $('#xTo').value = ymd(t);
+    }
+  });
+  on('#xGo', 'click', () => exportExcel($('#xFrom').value, $('#xTo').value));
+  drawList = () => {
+    const box = $('#plist'); if (!box) return;
+    const q = normAr($('#lq')?.value || '');
+    const ts = t => (t?.toMillis ? t.toMillis() : 0);
+    let list = parcels.filter(p => p.status === kind);
+    if (q) list = list.filter(p => normAr(p.receipt).includes(q) || normAr(p.contents).includes(q) || normAr(p.shelf).includes(q)
+      || (!isIn && (normAr(p.deliveredTo).includes(q) || normAr(p.deliveryRef).includes(q))));
+    list.sort(isIn
+      ? (a, b) => (a.shelf || '').localeCompare(b.shelf || '', 'en', { numeric: true }) || ts(a.addedAt) - ts(b.addedAt)
+      : (a, b) => ts(b.deliveredAt) - ts(a.deliveredAt));
+    box.innerHTML = `<div class="res-h">${list.length} طرد</div>` + (list.length ? list.map(parcelCard).join('') : '<p class="mut center-t">ما في طرود هنا</p>');
+  };
+  on('#lq', 'input', drawList);
+  drawList();
+}
+
+/* ---------- تصدير الجرد Excel ---------- */
+function receiptKey(p) {
+  const m = String(p.receipt || '').match(/^([A-Z]+)(\d+)$/);
+  return { y: +p.year || 0, pre: m ? m[1] : String(p.receipt || ''), n: m ? +m[2] : 0 };
+}
+function bySequence(a, b) {
+  const x = receiptKey(a), y = receiptKey(b);
+  return x.y - y.y || x.pre.localeCompare(y.pre) || x.n - y.n;
+}
+function parts(ts) {
+  if (!ts) return ['', '', ''];
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const s = shiftDay(d);
+  return [`${pad2(s.getDate())}/${pad2(s.getMonth() + 1)}/${s.getFullYear()}`, shiftOf(d), `${pad2(d.getHours())}:${pad2(d.getMinutes())}`];
+}
+function plainWhen(ts) { const [d, s, t] = parts(ts); return d ? `${d}، ${s}، ${t}` : ''; }
+async function exportExcel(from, to) {
+  if (typeof XLSX === 'undefined') return toast('مكتبة Excel ما تحملت، تأكد من الإنترنت', 'err');
+  if (!from || !to) return toast('اختر التاريخين', 'err');
+  if (from > to) [from, to] = [to, from];
+  const ms = t => (t?.toMillis ? t.toMillis() : 0);
+  const list = parcels
+    .filter(p => { if (!p.addedAt) return false; const d = ymd(shiftDay(p.addedAt.toDate())); return d >= from && d <= to; })
+    .sort((a, b) => bySequence(a, b) || ms(a.addedAt) - ms(b.addedAt));
+  if (!list.length) return toast('ما في طرود في هالفترة', 'err');
+
+  const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
+  const rows = list.map((p, i) => {
+    const out = p.status === 'out';
+    const [d1] = parts(p.addedAt);
+    const [d2, , t2] = parts(p.deliveredAt);
+    return [i + 1, d1, p.receipt || '', +p.year || p.year || '', p.contents, p.addedByName,
+      out ? 'مسلّم' : 'محجوز',
+      out ? p.deliveredTo : '', out ? p.deliveryRef : '', out ? p.deliveredByName : '', out ? `${d2}  ${t2}` : ''];
+  });
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [5, 12, 12, 8, 36, 20, 10, 22, 20, 20, 18].map(w => ({ wch: w }));
+  ws['!views'] = [{ RTL: true }];
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) };
+  ws['!rows'] = [{ hpt: 26 }, ...rows.map(() => ({ hpt: 22 }))];
+
+  const border = { top: { style: 'thin', color: { rgb: 'BFC7D1' } }, bottom: { style: 'thin', color: { rgb: 'BFC7D1' } },
+                   left: { style: 'thin', color: { rgb: 'BFC7D1' } }, right: { style: 'thin', color: { rgb: 'BFC7D1' } } };
+  const base = { alignment: { horizontal: 'center', vertical: 'center', wrapText: true, readingOrder: 2 }, border, font: { name: 'Arial', sz: 11 } };
+  const head = { ...base, font: { name: 'Arial', sz: 12, bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '052447' } } };
+  const red  = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '9C0006' } }, fill: { fgColor: { rgb: 'FFC7CE' } } };
+  const redL = { ...base, fill: { fgColor: { rgb: 'FDE4E7' } } };
+  const green = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '1E6B3A' } }, fill: { fgColor: { rgb: 'D5F2DF' } } };
+  headers.forEach((_, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })].s = head; });
+  rows.forEach((row, r) => {
+    const out = row[6] === 'مسلّم';
+    row.forEach((_, c) => {
+      const ref = XLSX.utils.encode_cell({ r: r + 1, c });
+      if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+      ws[ref].s = c === 6 ? (out ? red : green) : (c > 6 && out ? redL : base);
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  XLSX.utils.book_append_sheet(wb, ws, 'الجرد');
+
+  const f = s => s.split('-').reverse().join('-');
+  const name = `جرد-المستودع-من-${f(from)}-إلى-${f(to)}.xlsx`;
+  const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const file = new File([blob], name, { type: blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
+  } catch (e) { if (e?.name === 'AbortError') return; }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast(`تم تجهيز الجرد: ${rows.length} طرد`);
+}
+
+/* ---------- flow engine (كمّل كل الخطوات أو X يلغي) ---------- */
+function openFlow(title, kind) {
+  let cancelled = false, finished = false, scanner = null, pending = null, torchOn = false;
+  const ov = document.createElement('div');
+  ov.className = 'flow ' + kind;
+  ov.innerHTML = `<div class="fh"><button class="x" aria-label="إلغاء العملية">✕</button><div class="ft">${esc(title)}</div><div class="steps"></div></div><div class="fb"></div>`;
+  document.body.appendChild(ov); document.body.classList.add('noscroll');
+  const body = ov.querySelector('.fb');
+
+  async function stopScan() {
+    if (!scanner) return;
+    const s = scanner; scanner = null;
+    try { await s.stop(); } catch {}
+    try { s.clear(); } catch {}
+    torchOn = false;
+  }
+  async function close() {
+    if (cancelled && !ov.isConnected) return;
+    cancelled = true;
+    await stopScan();
+    ov.classList.add('closing');
+    await new Promise(r => setTimeout(r, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 230));
+    ov.remove(); document.body.classList.remove('noscroll');
+    if (pending) { const p = pending; pending = null; p(null); }
+  }
+  ov.querySelector('.x').onclick = () => { const wasDone = finished; close(); if (!wasDone) toast('تم إلغاء العملية، ما انحفظ شي'); };
+
+  return {
+    step(i, n) { ov.querySelector('.steps').textContent = `${i} من ${n}`; },
+    scan(prompt, validate) {
+      return new Promise(async resolve => {
+        if (cancelled) return resolve(null);
+        pending = resolve;
+        body.innerHTML = `<p class="prompt">${esc(prompt)}</p><div id="reader" class="reader"></div><button type="button" class="flash-btn" id="flashBtn">🔦 تشغيل الفلاش</button><div class="scanmsg"></div>
+          <p class="mut sm center-t">ضع الباركود بالعرض داخل الإطار وقرّب الجوال حتى يتضح</p>`;
+        let last = '', lastAt = 0, busy = false;
+        try {
+          scanner = new Html5Qrcode('reader', {
+            formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
+            verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+          });
+          await scanner.start({ facingMode: 'environment' }, {
+            fps: 12,
+            qrbox: (w, h) => ({ width: Math.floor(w * 0.92), height: Math.max(90, Math.floor(Math.min(w, h) * 0.42)) }),
+            videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+          }, async text => {
+            const now = Date.now();
+            if (busy || cancelled || (text === last && now - lastAt < 1800)) return;
+            last = text; lastAt = now; busy = true;
+            let r;
+            try { r = await validate(text); } catch (e) { r = { err: errMsg(e) }; }
+            if (cancelled) return;
+            if (r.err && r.alert) {
+              const rd = body.querySelector('.reader');
+              if (rd) {
+                rd.querySelector('.alert-big')?.remove();
+                const a = document.createElement('div');
+                a.className = 'alert-big'; a.setAttribute('role', 'alert');
+                a.innerHTML = `<div class="ai">!</div><div class="at">${esc(r.alert)}</div><div class="ad">${esc(r.err)}</div>`;
+                rd.appendChild(a);
+              }
+              ov.classList.add('alarm'); buzz(false); setTimeout(() => buzz(false), 380);
+              setTimeout(() => {
+                body.querySelector('.alert-big')?.remove(); ov.classList.remove('alarm');
+                last = ''; busy = false;
+              }, 3200);
+              return;
+            }
+            if (r.err) {
+              const m = body.querySelector('.scanmsg');
+              if (m) { m.textContent = r.err; m.classList.remove('show'); void m.offsetWidth; m.classList.add('show'); }
+              buzz(false); busy = false; return;
+            }
+            buzz(true); body.querySelector('.reader')?.classList.add('hit'); await new Promise(z => setTimeout(z, 280)); await stopScan(); pending = null; resolve(r.ok);
+          }, () => {});
+
+          const flashBtn = body.querySelector('#flashBtn');
+          if (flashBtn) {
+            let torchSupported = false;
+            try {
+              const caps = scanner.getRunningTrackCameraCapabilities?.();
+              torchSupported = !!(caps && caps.torchFeature && typeof caps.torchFeature().isSupported === 'boolean'
+                ? caps.torchFeature().isSupported
+                : caps?.torch);
+            } catch {}
+            if (!torchSupported) {
+              try {
+                const track = scanner.getRunningTrackSettings?.();
+                torchSupported = !!track;
+              } catch {}
+            }
+            flashBtn.onclick = async () => {
+              try {
+                torchOn = !torchOn;
+                await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] });
+                flashBtn.classList.toggle('on', torchOn);
+                flashBtn.textContent = torchOn ? '🔦 إطفاء الفلاش' : '🔦 تشغيل الفلاش';
+              } catch (err) {
+                torchOn = false;
+                flashBtn.classList.remove('on');
+                flashBtn.textContent = '🔦 تشغيل الفلاش';
+                toast('الفلاش غير مدعوم على هذا الجهاز أو المتصفح', 'err');
+              }
+            };
+          }
+        } catch (e) {
+          body.innerHTML = `<p class="prompt">${esc(prompt)}</p><div class="err-box">الكاميرا ما اشتغلت. اسمح للموقع باستخدام الكاميرا من إعدادات Safari، وبعدها اضغط ✕ وابدأ من جديد.<br><small class="mut">${esc(e?.message || e)}</small></div>`;
+        }
+      });
+    },
+    form(fields, ctx) {
+      return new Promise(resolve => {
+        if (cancelled) return resolve(null);
+        pending = resolve;
+        body.innerHTML = (ctx ? `<div class="ctx">${ctx}</div>` : '') + fields.map(f =>
+          `<label for="f_${f.key}">${esc(f.label)} <span class="req">*</span></label>` +
+          (f.multi ? `<textarea id="f_${f.key}" class="inp" rows="3"></textarea>` : `<input id="f_${f.key}" class="inp" autocomplete="off">`)
+        ).join('') + `<button id="fNext" class="btn gold" disabled>${esc(fields.submit || 'التالي')}</button>`;
+        const els = fields.map(f => body.querySelector('#f_' + f.key));
+        const btn = body.querySelector('#fNext');
+        const chk = () => { btn.disabled = !els.every(e => e.value.trim()); };
+        els.forEach(e => e.addEventListener('input', chk));
+        setTimeout(() => els[0]?.focus(), 150);
+        btn.onclick = () => {
+          if (btn.disabled) return;
+          const out = {}; fields.forEach((f, i) => out[f.key] = els[i].value.trim());
+          pending = null; resolve(out);
+        };
+      });
+    },
+    busy(msg) { body.innerHTML = `<div class="center" style="min-height:40vh"><div class="spinner"></div><div class="mut">${esc(msg)}</div></div>`; },
+    result(ok, msg, rows = []) {
+      finished = true;
+      body.innerHTML = `<div class="res-box ${ok ? 'ok' : 'bad'}"><div class="ico">${ok ? '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : '!'}</div><h2>${esc(msg)}</h2>
+        ${rows.map(([k, v]) => `<div class="row"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+        <button class="btn gold" id="fDone">${ok ? 'تم' : 'رجوع للرئيسية'}</button>`;
+      body.querySelector('#fDone').onclick = () => close();
+    }
+  };
+}
+
+/* ---------- إدخال وصل أمانة ---------- */
+async function flowAdd() {
+  const f = openFlow('إدخال وصل أمانة', 'add');
+  f.step(1, 3);
+  const r = await f.scan('امسح باركود وصل الأمانة', async t => {
+    const p = parseReceipt(t);
+    if (!p) return { err: 'هذا ليس باركود وصل أمانة' };
+    const s = await getDoc(doc(db, 'parcels', p.id));
+    if (s.exists()) {
+      const d = s.data();
+      return d.status === 'in'
+        ? { alert: 'الطرد مسجل', err: `الوصل ${p.receipt} / ${p.year} موجود على الرف ${d.shelf}` }
+        : { alert: 'مسلّم بالفعل', err: `الوصل ${p.receipt} / ${p.year} تسلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
+    }
+    return { ok: p };
+  });
+  if (!r) return;
+
+  f.step(2, 3);
+  const fields = [{ key: 'contents', label: 'المحتويات', multi: true }];
+  const fm = await f.form(fields, `وصل ${esc(r.receipt)} / ${esc(r.year)}`);
+  if (!fm) return;
+
+  f.step(3, 3);
+  const shelf = await f.scan('امسح باركود الرف', t => {
+    const s = parseShelf(t);
+    return s ? { ok: s } : { err: 'هذا مو باركود رف' };
+  });
+  if (!shelf) return;
+
+  f.busy('جاري الحفظ…');
+  try {
+    const lf = logFields();
+    const b = writeBatch(db);
+    b.set(doc(db, 'parcels', r.id), {
+      receipt: r.receipt, year: r.year, port: r.port, raw: r.raw,
+      contents: fm.contents, shelf, status: 'in',
+      addedBy: me.no, addedByName: me.name, addedShift: lf.shift, addedAt: serverTimestamp()
+    });
+    b.set(doc(collection(db, 'logs')), { type: 'add', parcelId: r.id, receipt: r.receipt, year: r.year, shelf, contents: fm.contents, ...lf });
+    await b.commit();
+    f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['المحتويات', fm.contents], ['الرف', shelf]]);
+  } catch (e) {
+    console.error(e);
+    f.result(false, 'ما انحفظ الطرد', [['السبب', errMsg(e)]]);
+  }
+}
+
+/* ---------- تسليم طرد ---------- */
+async function flowDeliver() {
+  const f = openFlow('تسليم طرد', 'del');
+  f.step(1, 3);
+  let p = null;
+  const r = await f.scan('امسح باركود وصل الأمانة', async t => {
+    const x = parseReceipt(t);
+    if (!x) return { err: 'هذا ليس باركود وصل أمانة' };
+    const s = await getDoc(doc(db, 'parcels', x.id));
+    if (!s.exists()) return { err: `الوصل ${x.receipt} / ${x.year} مو مسجل في المستودع` };
+    const d = s.data();
+    if (d.status !== 'in') return { alert: 'مسلّم بالفعل', err: `الوصل ${x.receipt} / ${x.year} تسلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
+    p = { id: x.id, ...d };
+    return { ok: x };
+  });
+  if (!r) return;
+
+  f.step(2, 3);
+  const shelf = await f.scan(`امسح باركود الرف ${p.shelf}`, t => {
+    const s = parseShelf(t);
+    if (!s) return { err: 'هذا مو باركود رف' };
+    if (s !== p.shelf) return { err: `الطرد مسجل على الرف ${p.shelf}، وإنت مسحت الرف ${s}` };
+    return { ok: s };
+  });
+  if (!shelf) return;
+
+  f.step(3, 3);
+  const fields = [{ key: 'to', label: 'اسم المستلم' }, { key: 'ref', label: 'اسم الكتاب أو رقم إشعار التسليم' }];
+  fields.submit = 'تأكيد التسليم';
+  const fm = await f.form(fields, `وصل ${esc(p.receipt)} / ${esc(p.year)}، ${esc(p.contents)}`);
+  if (!fm) return;
+
+  f.busy('جاري الحفظ…');
+  try {
+    const lf = logFields();
+    const b = writeBatch(db);
+    b.update(doc(db, 'parcels', p.id), {
+      status: 'out', deliveredTo: fm.to, deliveryRef: fm.ref,
+      deliveredBy: me.no, deliveredByName: me.name, deliveredShift: lf.shift, deliveredAt: serverTimestamp()
+    });
+    b.set(doc(collection(db, 'logs')), { type: 'deliver', parcelId: p.id, receipt: p.receipt, year: p.year, shelf: p.shelf, contents: p.contents, deliveredTo: fm.to, deliveryRef: fm.ref, ...lf });
+    await b.commit();
+    f.result(true, 'تم تسليم الطرد وإخراجه من المستودع', [['الوصل', `${p.receipt} / ${p.year}`], ['المستلم', fm.to], ['الكتاب / الإشعار', fm.ref]]);
+  } catch (e) {
+    console.error(e);
+    f.result(false, 'ما انحفظ التسليم', [['السبب', errMsg(e)]]);
+  }
+}
+
+/* ---------- السجل ---------- */
+function logCard(l) {
+  if (l.type === 'login') {
+    const cur = l.sessionId === sessionId;
+    const label = l.idle ? (cur ? 'دخول (الجلسة الحالية)' : 'دخول بدون عمليات') : 'دخول';
+    return `<div class="lg ${l.idle && !cur ? 'idle' : ''}"><div class="lg-h"><span class="tag ${l.idle && !cur ? 't-idle' : 't-login'}">${label}</span></div><div class="when">${fmt(l.at)}</div>
+      <div class="meta">${esc(l.empName)}</div></div>`;
+  }
+  const add = l.type === 'add';
+  return `<div class="lg"><div class="lg-h"><span class="tag ${add ? 't-add' : 't-del'}">${add ? 'إدخال' : 'تسليم'}</span></div><div class="when">${fmt(l.at)}</div>
+    <div class="rno">${esc(l.receipt)} <span class="yr">/ ${esc(l.year)}</span></div>
+    <div class="row"><span>الرف</span><b>${esc(l.shelf)}</b></div>
+    <div class="row"><span>المحتويات</span><b>${esc(l.contents)}</b></div>
+    ${add ? '' : `<div class="row"><span>المستلم</span><b>${esc(l.deliveredTo)}</b></div><div class="row"><span>الكتاب / الإشعار</span><b>${esc(l.deliveryRef)}</b></div>`}
+    <div class="meta">${esc(l.empName)}</div></div>`;
+}
+
+async function renderLog() {
+  view(`<div class="wrap">
+    <header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">السجل</div><span style="width:60px"></span></header>
+    <div class="chips">
+      <button class="chipb on" data-k="all">الكل</button><button class="chipb" data-k="add">إدخال</button>
+      <button class="chipb" data-k="deliver">تسليم</button><button class="chipb" data-k="idle">دخول بدون عمليات</button>
+    </div>
+    <div id="logs"><div class="spinner"></div></div></div>`);
+  on('#back', 'click', renderHome);
+  try {
+    const s = await getDocs(query(collection(db, 'logs'), orderBy('at', 'desc'), limit(500)));
+    const logs = s.docs.map(d => d.data());
+    const active = new Set(logs.filter(l => l.type === 'add' || l.type === 'deliver').map(l => l.sessionId));
+    logs.forEach(l => { if (l.type === 'login') l.idle = !active.has(l.sessionId); });
+    let k = 'all';
+    const draw = () => {
+      const list = logs.filter(l => k === 'all' ? true : k === 'idle' ? (l.type === 'login' && l.idle && l.sessionId !== sessionId) : l.type === k);
+      const box = $('#logs'); if (!box) return;
+      box.innerHTML = list.length ? list.map(logCard).join('') : '<p class="mut center-t">ما في حركات هنا</p>';
+    };
+    document.querySelectorAll('.chipb').forEach(b => b.onclick = () => {
+      document.querySelectorAll('.chipb').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); k = b.dataset.k; draw();
+    });
+    draw();
+  } catch (e) {
+    const box = $('#logs'); if (box) box.innerHTML = `<div class="err-box">${esc(errMsg(e))}</div>`;
+  }
+}
+
+/* ---------- الإدارة ---------- */
+function renderAdmin() {
+  if (!me.isAdmin) return renderHome();
+  view(`<div class="wrap">
+    <header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">الإدارة</div><span style="width:60px"></span></header>
+    <div class="tabs"><button class="tab on" data-t="emp">الموظفين</button><button class="tab" data-t="bc">باركود الرفوف</button></div>
+    <div id="tabBody"></div></div>`);
+  on('#back', 'click', renderHome);
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+    t.classList.add('on'); t.dataset.t === 'emp' ? tabEmployees() : tabBarcode();
+  });
+  tabEmployees();
+}
+
+let employees = [];
+async function tabEmployees() {
+  $('#tabBody').innerHTML = `
+    <div class="card"><h3>إضافة موظف</h3>
+      <label for="eName">الاسم</label><input id="eName" class="inp" autocomplete="off">
+      <label for="eNo">الرقم الشخصي</label><input id="eNo" class="inp" inputmode="numeric" autocomplete="off">
+      <label class="chk"><input type="checkbox" id="eAdm"> يعطى صلاحية أدمن</label>
+      <button id="eAdd" class="btn gold">إضافة الموظف</button></div>
+    <details class="card"><summary>إضافة مجموعة موظفين مرة وحدة</summary>
+      <p class="mut sm">الصق اللستة، كل موظف في سطر: الاسم، الرقم الشخصي</p>
+      <textarea id="bulk" class="inp" rows="7"></textarea>
+      <button id="bulkGo" class="btn gold">إضافة الكل</button></details>
+    <div class="card"><h3>الموظفين <span id="eCnt" class="mut sm"></span></h3><div id="eList"><div class="spinner"></div></div></div>`;
+  on('#eAdd', 'click', addEmployee);
+  on('#bulkGo', 'click', addBulk);
+  await loadEmployees();
+}
+
+async function loadEmployees() {
+  try {
+    const s = await getDocs(collection(db, 'employees'));
+    employees = s.docs.map(d => ({ no: d.id, ...d.data() }))
+      .sort((a, b) => (b.isAdmin ? 1 : 0) - (a.isAdmin ? 1 : 0) || (a.name || '').localeCompare(b.name || '', 'ar'));
+    const box = $('#eList'); if (!box) return;
+    $('#eCnt').textContent = `(${employees.length})`;
+    box.innerHTML = employees.map(e => `
+      <div class="emp"><div class="who"><div class="nm">${esc(e.name)}${e.isAdmin ? '<span class="adm">أدمن</span>' : ''}</div><div class="no">${esc(e.no)}</div></div>
+        <button class="mini" data-a="adm" data-no="${esc(e.no)}">${e.isAdmin ? 'شيل الأدمن' : 'خله أدمن'}</button>
+        <button class="mini dng" data-a="del" data-no="${esc(e.no)}">حذف</button></div>`).join('');
+    box.querySelectorAll('.mini').forEach(b => b.onclick = () => b.dataset.a === 'adm' ? toggleAdmin(b.dataset.no) : removeEmployee(b.dataset.no));
+  } catch (e) { fail(e); }
+}
+
+async function addEmployee() {
+  const name = val('#eName'), no = digits(val('#eNo')), isAdmin = $('#eAdm').checked;
+  if (!name || !no) return toast('عبّئ الاسم والرقم الشخصي', 'err');
+  try {
+    if ((await getDoc(doc(db, 'employees', no))).exists()) return toast('هذا الرقم مسجل مسبقاً', 'err');
+    await setDoc(doc(db, 'employees', no), { name, isAdmin, createdAt: serverTimestamp(), createdBy: me.no });
+    toast(`تمت إضافة ${name}`);
+    $('#eName').value = ''; $('#eNo').value = ''; $('#eAdm').checked = false;
+    loadEmployees();
+  } catch (e) { fail(e); }
+}
+
+async function addBulk() {
+  const lines = val('#bulk').split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const have = new Set(employees.map(e => e.no));
+  const rows = [];
+  for (const l of lines) {
+    const numMatch = l.match(/[0-9٠-٩]{4,}/);
+    const no = digits(numMatch ? numMatch[0] : '');
+    const name = (numMatch ? l.replace(numMatch[0], ' ') : l).replace(/[,،\t;|\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (no && name && !have.has(no)) { rows.push({ no, name }); have.add(no); }
+  }
+  if (!rows.length) return toast('ما لقيت موظفين جدد في اللستة', 'err');
+  try {
+    for (let i = 0; i < rows.length; i += 400) {
+      const b = writeBatch(db);
+      rows.slice(i, i + 400).forEach(r => b.set(doc(db, 'employees', r.no), { name: r.name, isAdmin: false, createdAt: serverTimestamp(), createdBy: me.no }));
+      await b.commit();
+    }
+    toast(`تمت إضافة ${rows.length} موظف`);
+    $('#bulk').value = '';
+    loadEmployees();
+  } catch (e) { fail(e); }
+}
+
+async function toggleAdmin(no) {
+  const e = employees.find(x => x.no === no); if (!e) return;
+  const admins = employees.filter(x => x.isAdmin).length;
+  if (e.isAdmin && no === me.no) return toast('ما تقدر تشيل الأدمن عن نفسك', 'err');
+  if (e.isAdmin && admins <= 1) return toast('لازم يبقى أدمن واحد على الأقل', 'err');
+  try { await updateDoc(doc(db, 'employees', no), { isAdmin: !e.isAdmin }); loadEmployees(); } catch (err) { fail(err); }
+}
+
+async function removeEmployee(no) {
+  const e = employees.find(x => x.no === no); if (!e) return;
+  if (no === me.no) return toast('ما تقدر تحذف نفسك', 'err');
+  if (e.isAdmin && employees.filter(x => x.isAdmin).length <= 1) return toast('لازم يبقى أدمن واحد على الأقل', 'err');
+  if (!confirm(`حذف ${e.name}؟ حركاته السابقة تبقى في السجل.`)) return;
+  try { await deleteDoc(doc(db, 'employees', no)); toast('تم الحذف'); loadEmployees(); } catch (err) { fail(err); }
+}
+
+function tabBarcode() {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  $('#tabBody').innerHTML = `
+    <div class="card"><h3>مولّد باركود الرفوف</h3>
+      <p class="mut sm">اختر الرف، وبتطلع لك صورة الباركود. اضغط على الصورة مطولاً واختر "حفظ في الصور"، أو استخدم زر المشاركة.</p>
+      <div class="grid2">
+        <div><label for="bL">الحرف</label><select id="bL" class="inp">${letters.map(l => `<option>${l}</option>`).join('')}</select></div>
+        <div><label for="bN">الرقم</label><select id="bN" class="inp">${[1, 2, 3, 4].map(n => `<option>${n}</option>`).join('')}</select></div>
+      </div>
+      <button id="bGen" class="btn gold">إنشاء الباركود</button>
+      <div id="bOut"></div></div>`;
+  on('#bGen', 'click', () => {
+    const code = `${$('#bL').value}${$('#bN').value}`;
+    const bc = document.createElement('canvas');
+    JsBarcode(bc, 'SH-' + code, { format: 'CODE128', displayValue: false, width: 4, height: 170, margin: 34, background: '#ffffff', lineColor: '#000000' });
+    const out = document.createElement('canvas');
+    out.width = bc.width; out.height = bc.height + 140;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(bc, 0, 0);
+    ctx.fillStyle = '#000'; ctx.font = 'bold 110px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(code, out.width / 2, bc.height + 55);
+    const url = out.toDataURL('image/png');
+    $('#bOut').innerHTML = `<img src="${url}" class="bcimg" alt="باركود الرف ${code}"><button id="bShare" class="btn line">مشاركة / حفظ صورة الرف ${code}</button>`;
+    on('#bShare', 'click', () => out.toBlob(async blob => {
+      const file = new File([blob], `shelf-${code}.png`, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: `رف ${code}` }); } catch {}
+      } else {
+        const a = document.createElement('a'); a.href = url; a.download = `shelf-${code}.png`; a.click();
+      }
+    }, 'image/png'));
+  });
+}
+
+/* ---------- boot ---------- */
+renderBoot();
+onAuthStateChanged(auth, async user => {
+  if (!user) {
+    try { await signInAnonymously(auth); }
+    catch (e) { view(`<div class="wrap">${brand()}<div class="err-box">تعذّر الاتصال بقاعدة البيانات.<br><small>${esc(errMsg(e))}</small></div></div>`); }
+    return;
+  }
+  if (booted) return; booted = true;
+  try {
+    if (await restore()) return renderHome();
+    if (await employeesEmpty()) return renderSetup();
+    renderLogin();
+  } catch (e) {
+    view(`<div class="wrap">${brand()}<div class="err-box">${esc(errMsg(e))}</div></div>`);
+  }
+});
+</script>
+</body>
+</html>
