@@ -1,0 +1,16 @@
+ملفات صفحة تحميل تطبيق مستودعات الجمارك
+
+ارفع هذه الملفات الثلاثة في نفس المجلد على سيرفرك:
+index.html
+icon.png
+customs-warehouse.apk
+
+مثال: ارفعها داخل public_html/app ثم افتح https://YOUR-DOMAIN/app/
+رابط APK المباشر: https://YOUR-DOMAIN/app/customs-warehouse.apk
+
+لا تحتاج Node أو PHP أو قاعدة بيانات لتشغيل صفحة التحميل.
+index.html هنا هو صفحة التحميل؛ واجهة نظام المستودعات موجودة داخل APK، وإعدادات Firebase محفوظة كما في المصدر.
+إذا منع السيرفر تنزيل APK، اسمح بامتداد .apk واضبط نوع الملف إلى application/vnd.android.package-archive.
+استخدم HTTPS على سيرفرك.
+
+نسخة المشروع ومفتاح التوقيع في ملف منفصل android-project-backup.zip، وهي للحفظ الخاص والتحديثات فقط. لا ترفعها داخل مجلد عام على السيرفر.
