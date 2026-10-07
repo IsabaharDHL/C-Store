@@ -1,0 +1,327 @@
+// LOCAL PRODUCTION CANDIDATE. Do not deploy before owner migration and emulator review.
+// Passwords exist only in Firebase Authentication. No client can write passwords,
+// administrative bootstrap records, a replacement UID binding, or historical data.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/administrators/$(request.auth.uid))
+        && get(/databases/$(database)/documents/administrators/$(request.auth.uid)).data.active == true;
+    }
+    function route(id) { return get(/databases/$(database)/documents/loginRoutes/$(id)).data; }
+    function access(id) { return get(/databases/$(database)/documents/employeeAccess/$(id)).data; }
+    function profile(id) { return get(/databases/$(database)/documents/employees/$(id)).data; }
+    function binding() { return get(/databases/$(database)/documents/uidBindings/$(request.auth.uid)).data; }
+    function boundAccessActive(b) {
+      let a = access(b.employeeId);
+      return a.active == true && a.role == 'employee'
+        && a.uid == request.auth.uid && a.generation == b.generation;
+    }
+    function activeEmployee() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/uidBindings/$(request.auth.uid))
+        && boundAccessActive(binding());
+    }
+    function actorId() {
+      return owner()
+        ? get(/databases/$(database)/documents/administrators/$(request.auth.uid)).data.employeeId
+        : binding().employeeId;
+    }
+    function actorSection() { return access(binding().employeeId).section; }
+    function ownActiveProfile(id) { return activeEmployee() && binding().employeeId == id; }
+    function validId(id) { return id is string && id.matches('^[0-9]{1,30}$'); }
+    function validSection(section) {
+      return section is string && section.size() > 0 && section.size() <= 100 && section != 'all';
+    }
+    function validRoute(d) {
+      return d.keys().hasAll(['generation', 'state', 'enabled', 'alias'])
+        && d.keys().hasOnly(['generation', 'state', 'enabled', 'alias'])
+        && d.generation is int && d.generation > 0
+        && d.state in ['pending', 'claimed'] && d.enabled is bool
+        && d.alias is string && d.alias.matches('^[a-f0-9]{32}@employees[.]invalid$');
+    }
+    function validAccess(d) {
+      return d.keys().hasAll(['generation', 'uid', 'active', 'role', 'section'])
+        && d.keys().hasOnly(['generation', 'uid', 'active', 'role', 'section'])
+        && d.generation is int && d.generation > 0
+        && d.uid is string && d.uid.size() <= 128 && d.active is bool
+        && d.role == 'employee' && validSection(d.section);
+    }
+    function passwordIdentity(id, generation) {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && route(id).generation == generation
+        && request.auth.token.email == route(id).alias;
+    }
+    function canClaim(id) {
+      return validId(id) && passwordIdentity(id, access(id).generation)
+        && !owner()
+        && !exists(/databases/$(database)/documents/uidBindings/$(request.auth.uid))
+        && claimableProfile(id)
+        && access(id).active == true && access(id).role == 'employee' && access(id).uid == ''
+        && route(id).enabled == true && route(id).state == 'pending'
+        && route(id).generation == access(id).generation;
+    }
+    function claimCompleted(id) {
+      return getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/uidBindings/$(request.auth.uid)).data.employeeId == id
+        && getAfter(/databases/$(database)/documents/uidBindings/$(request.auth.uid)).data.generation == access(id).generation
+        && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.state == 'claimed';
+    }
+    function newAccessAfter(id) {
+      let a = getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data;
+      return validAccess(a) && a.generation == 1 && a.uid == '' && a.active == true
+        && provisionedProfileAfter(id, a.section);
+    }
+    function newRouteAfter(id) {
+      let r = getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data;
+      return validRoute(r) && r.generation == 1 && r.state == 'pending' && r.enabled == true;
+    }
+
+    // Owner bootstraps these records with trusted tooling, outside browser claims.
+    // Self-get permits a non-owner to read their own nonexistent record safely.
+    match /administrators/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+    // Exact personal-number lookup only. Existence is deliberately discoverable.
+    match /loginRoutes/{id} {
+      allow get: if true;
+      allow list: if globalAdmin();
+      allow create: if validId(id) && canProvision(id)
+        && validRoute(request.resource.data)
+        && request.resource.data.generation == 1 && request.resource.data.state == 'pending'
+        && request.resource.data.enabled == true
+        && !exists(/databases/$(database)/documents/employeeAccess/$(id))
+        && newAccessAfter(id);
+      allow update: if validRoute(request.resource.data) && (
+        (canClaim(id) && claimCompleted(id)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state'])
+          && request.resource.data.state == 'claimed')
+        || (canManage(id)
+          && resource.data.enabled == false && access(id).active == false
+          && request.resource.data.enabled == true
+          && request.resource.data.generation == resource.data.generation + 1
+          && request.resource.data.alias != resource.data.alias
+          && request.resource.data.state == 'pending'
+          && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.generation == request.resource.data.generation
+          && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.uid == ''
+          && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.active == true)
+        || (canManage(id)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled'])
+          && resource.data.enabled == true && request.resource.data.enabled == false
+          && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.active == false)
+      );
+      allow delete: if false;
+    }
+    match /employeeAccess/{id} {
+      allow get: if canReadAccess(id) || ownActiveProfile(id);
+      allow list: if canListAccess(resource.data);
+      allow create: if validId(id) && canProvision(id) && validAccess(request.resource.data)
+        && request.resource.data.generation == 1 && request.resource.data.uid == ''
+        && request.resource.data.active == true
+        && !exists(/databases/$(database)/documents/loginRoutes/$(id))
+        && newRouteAfter(id) && provisionedProfileAfter(id, request.resource.data.section);
+      allow update: if validAccess(request.resource.data) && (
+        (canClaim(id) && claimCompleted(id)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid)
+        || (canManage(id)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'generation', 'active'])
+          && resource.data.active == false && route(id).enabled == false
+          && request.resource.data.active == true
+          && request.resource.data.generation == resource.data.generation + 1
+          && request.resource.data.uid == ''
+          && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.generation == request.resource.data.generation
+          && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.state == 'pending'
+          && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.enabled == true
+          && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.alias != route(id).alias
+          && provisionedProfileAfter(id, resource.data.section))
+        || (canManage(id) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active'])
+          && resource.data.active == true && request.resource.data.active == false
+          && getAfter(/databases/$(database)/documents/loginRoutes/$(id)).data.enabled == false)
+        || canMoveAccess(id)
+      );
+      allow delete: if false;
+    }
+    // Permanent UID tombstones: deleting Auth users never frees these bindings.
+    match /uidBindings/{uid} {
+      allow get: if globalAdmin() || (signedIn() && request.auth.uid == uid);
+      allow list: if globalAdmin();
+      allow create: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['employeeId', 'generation'])
+        && request.resource.data.keys().hasOnly(['employeeId', 'generation'])
+        && validId(request.resource.data.employeeId)
+        && request.resource.data.generation is int
+        && request.resource.data.generation == access(request.resource.data.employeeId).generation
+        && canClaim(request.resource.data.employeeId) && claimCompleted(request.resource.data.employeeId);
+      allow update, delete: if false;
+    }
+
+    // Legacy roles are trusted only after owner audit/migration. Browser writes
+    // cannot assign isSuper, replace their own roles, or edit other sections.
+    function globalAdmin() {
+      return owner() || (activeEmployee() && profile(binding().employeeId).get('isSuper', false) == true);
+    }
+    function sectionAdmin() {
+      return activeEmployee() && profile(binding().employeeId).get('isAdmin', false) == true;
+    }
+    function managerForSection(section) {
+      return globalAdmin() || (sectionAdmin() && section == actorSection());
+    }
+    function actorInSection(section) {
+      return validSection(section) && (globalAdmin() || (activeEmployee() && section == actorSection()));
+    }
+    function claimableProfile(id) {
+      return profile(id).get('isSuper', false) == false && profile(id).section == access(id).section;
+    }
+    function canProvision(id) {
+      return (!exists(/databases/$(database)/documents/employees/$(id))
+          ? (globalAdmin() || sectionAdmin())
+          : (profile(id).get('isSuper', false) == false && managerForSection(profile(id).section)))
+        && id != actorId();
+    }
+    function canManage(id) {
+      return id != actorId()
+        && profile(id).get('isSuper', false) == false
+        && profile(id).section == access(id).section && managerForSection(access(id).section);
+    }
+    function provisionedProfileAfter(id, section) {
+      let p = getAfter(/databases/$(database)/documents/employees/$(id)).data;
+      return p.name is string && p.name.size() > 0 && p.name.size() <= 200
+        && p.get('isSuper', false) == false
+        && p.get('isAdmin', false) is bool
+        && p.section == section && managerForSection(section);
+    }
+    function canReadAccess(id) {
+      return globalAdmin() || (sectionAdmin()
+        && (!exists(/databases/$(database)/documents/employeeAccess/$(id))
+          || resource.data.section == actorSection()));
+    }
+    function canListAccess(d) { return globalAdmin() || (sectionAdmin() && d.section == actorSection()); }
+    function canMoveAccess(id) {
+      return globalAdmin() && canManage(id)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['section'])
+        && getAfter(/databases/$(database)/documents/employees/$(id)).data.section == request.resource.data.section;
+    }
+    function validProfile(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 200
+        && d.get('isAdmin', false) is bool && d.get('isSuper', false) is bool
+        && validSection(d.section);
+    }
+    match /employees/{id} {
+      allow get: if globalAdmin() || ownActiveProfile(id) || (sectionAdmin()
+        && (!exists(/databases/$(database)/documents/employees/$(id))
+          || resource.data.section == actorSection()));
+      allow list: if globalAdmin() || (sectionAdmin() && resource.data.section == actorSection());
+      allow create: if validId(id) && canProvision(id) && validProfile(request.resource.data)
+        && request.resource.data.keys().hasOnly(['name', 'isAdmin', 'isSuper', 'section', 'createdAt', 'createdBy'])
+        && request.resource.data.get('isSuper', false) == false
+        && request.resource.data.createdBy == actorId() && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.section == request.resource.data.section
+        && newAccessAfter(id) && newRouteAfter(id);
+      allow update: if canManage(id) && validProfile(request.resource.data)
+        && request.resource.data.get('isSuper', false) == resource.data.get('isSuper', false)
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'isAdmin', 'createdBy'])
+            && request.resource.data.section == resource.data.section
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdBy'])
+              || request.resource.data.createdBy == actorId()))
+          || (globalAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['section'])
+            && getAfter(/databases/$(database)/documents/employeeAccess/$(id)).data.section == request.resource.data.section)
+        );
+      allow delete: if false;
+    }
+    match /sections/{id} {
+      allow read: if owner() || activeEmployee();
+      allow create: if globalAdmin()
+        && request.resource.data.keys().hasAll(['name', 'ports', 'createdAt', 'createdBy'])
+        && request.resource.data.keys().hasOnly(['name', 'ports', 'createdAt', 'createdBy'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && request.resource.data.ports is list && request.resource.data.ports.size() <= 100
+        && request.resource.data.createdAt == request.time && request.resource.data.createdBy == actorId();
+      allow update: if globalAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'ports'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && request.resource.data.ports is list && request.resource.data.ports.size() <= 100;
+      allow delete: if false;
+    }
+    function validParcelCreate(d) {
+      return d.keys().hasAll(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
+          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt'])
+        && d.keys().hasOnly(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
+          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt'])
+        && actorInSection(d.section) && d.status == 'in'
+        && d.receipt is string && d.receipt.size() > 0 && d.receipt.size() <= 100
+        && d.year is string && d.year.matches('^20[0-9]{2}$')
+        && d.port is string && d.port.matches('^[0-9]{4}$')
+        && d.raw is string && d.raw.size() <= 200
+        && d.contents is string && d.contents.size() > 0 && d.contents.size() <= 20000
+        && d.shelf is string && d.shelf.matches('^[A-Z][1-9][0-9]*$')
+        && d.addedBy == actorId() && d.addedByUid == request.auth.uid
+        && d.addedByName == profile(actorId()).name
+        && d.addedShift is string && d.addedShift.size() <= 100 && d.addedAt == request.time;
+    }
+    match /parcels/{id} {
+      // The scanner checks a new receipt before creation. Missing documents have
+      // no section; permit that exact lookup without widening collection queries.
+      allow get: if globalAdmin() || (activeEmployee()
+        && (!exists(/databases/$(database)/documents/parcels/$(id)) || resource.data.section == actorSection()));
+      allow list: if globalAdmin() || (activeEmployee() && resource.data.section == actorSection());
+      allow create: if validParcelCreate(request.resource.data);
+      allow update: if actorInSection(resource.data.section)
+        && resource.data.status == 'in' && request.resource.data.status == 'out'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveredTo', 'deliveryRef',
+          'deliveredBy', 'deliveredByUid', 'deliveredByName', 'deliveredShift', 'deliveredAt'])
+        && request.resource.data.deliveredTo is string && request.resource.data.deliveredTo.size() > 0
+        && request.resource.data.deliveredTo.size() <= 1000
+        && request.resource.data.deliveryRef is string && request.resource.data.deliveryRef.size() > 0
+        && request.resource.data.deliveryRef.size() <= 1000
+        && request.resource.data.deliveredBy == actorId() && request.resource.data.deliveredByUid == request.auth.uid
+        && request.resource.data.deliveredByName == profile(actorId()).name
+        && request.resource.data.deliveredShift is string && request.resource.data.deliveredShift.size() <= 100
+        && request.resource.data.deliveredAt == request.time;
+      allow delete: if false;
+    }
+    function validLogBase(d) {
+      return d.keys().hasAll(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at'])
+        && d.type in ['login', 'add', 'deliver']
+        && d.empNo == actorId() && d.empName == profile(actorId()).name && d.actorUid == request.auth.uid
+        && d.shift is string && d.shift.size() <= 100
+        && d.shiftDate is string && d.shiftDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.sessionId is string && d.sessionId.size() > 0 && d.sessionId.size() <= 200
+        && d.at == request.time;
+    }
+    function validOperationLog(d) {
+      let p = getAfter(/databases/$(database)/documents/parcels/$(d.parcelId)).data;
+      return d.parcelId is string && actorInSection(d.section)
+        && d.receipt == p.receipt && d.year == p.year && d.shelf == p.shelf
+        && d.contents == p.contents && d.section == p.section
+        && ((d.type == 'add' && p.status == 'in' && p.addedByUid == request.auth.uid && p.addedAt == request.time
+            && d.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at',
+              'parcelId', 'receipt', 'year', 'shelf', 'contents']))
+          || (d.type == 'deliver' && p.status == 'out' && p.deliveredByUid == request.auth.uid && p.deliveredAt == request.time
+            && d.deliveredTo == p.deliveredTo && d.deliveryRef == p.deliveryRef
+            && d.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at',
+              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'deliveredTo', 'deliveryRef'])));
+    }
+    match /logs/{id} {
+      allow read: if globalAdmin() || (activeEmployee() && resource.data.section == actorSection()
+        && (sectionAdmin() || resource.data.type in ['add', 'deliver']));
+      allow create: if (owner() || activeEmployee()) && validLogBase(request.resource.data)
+        && ((request.resource.data.type == 'login'
+            && request.resource.data.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at'])
+            && ((globalAdmin() && request.resource.data.section == 'all')
+              || (activeEmployee() && request.resource.data.section == actorSection())))
+          || (request.resource.data.type in ['add', 'deliver'] && validOperationLog(request.resource.data)));
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

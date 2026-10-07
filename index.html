@@ -149,6 +149,7 @@ details summary{font-weight:700;cursor:pointer}
 .hit-big{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#fff;text-align:center;border-radius:14px;background:rgba(24,120,68,.95);animation:fadeUp .25s ease both}
 .hit-big .hl{font-size:1rem;opacity:.9}
 .hit-big .hn{font-size:2.4rem;font-weight:700;direction:ltr;unicode-bidi:isolate;animation:pop .45s cubic-bezier(.2,.8,.2,1) both}
+[hidden]{display:none!important}
 .man-btn{display:block;width:100%;margin-top:7px;border:1.5px solid var(--line);background:transparent;color:var(--txt);border-radius:12px;padding:11px;font:inherit;font-weight:700}
 .man-box{display:flex;gap:8px;margin-top:8px;animation:fadeUp .25s ease both}
 .man-box .inp{flex:1;min-width:0;direction:ltr;text-align:center;text-transform:uppercase;padding:12px}
@@ -227,8 +228,8 @@ footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);fon
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, collection, query, orderBy, limit, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { createEmployeeAuth, employeeAuthErrorMessage } from "./employee-auth.js";
+import { getFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD3BMLeDO6UpzBwYO4xWwCqoYZKKdSdfk4",
@@ -239,8 +240,8 @@ const firebaseConfig = {
   appId: "1:938683774556:web:f0e6d2b900a52ed9cf9899"
 };
 const fbApp = initializeApp(firebaseConfig);
-const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
+const authFlow = createEmployeeAuth(fbApp, db);
 
 /* ---------- helpers ---------- */
 const LS = 'dhl_store_session';
@@ -255,7 +256,7 @@ const digits = s => toEn(s).replace(/\D/g, '');
 /* أي رقم ينكتب بأي لغة يتحول إنجليزي على طول */
 document.addEventListener('input', e => {
   const t = e.target;
-  if (!t.matches || !t.matches('input, textarea')) return;
+  if (!t.matches || !t.matches('input, textarea') || t.type === 'password') return;
   const v = t.value, n = toEn(v);
   if (n !== v) {
     const pos = t.selectionStart;
@@ -265,7 +266,13 @@ document.addEventListener('input', e => {
 }, true);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-const view = html => { $('#app').innerHTML = html; window.scrollTo(0, 0); };
+let viewEpoch = 0;
+const view = html => { viewEpoch++; $('#app').innerHTML = html; window.scrollTo(0, 0); };
+// Pending reads and writes may finish after navigation or an account change.
+const currentView = () => {
+  const session = sessionEpoch, screen = viewEpoch, actor = me?.uid;
+  return () => session === sessionEpoch && screen === viewEpoch && !!actor && actor === me?.uid;
+};
 
 const ICON = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
@@ -284,10 +291,10 @@ function errMsg(e) {
   const c = e?.code || '';
   if (c.includes('permission-denied')) return 'رفضت قاعدة البيانات العملية. يرجى التأكد من نشر قواعد Firestore.';
   if (c.includes('unavailable')) return 'لا يوجد اتصال بالإنترنت. يرجى المحاولة مرة أخرى.';
-  if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) return 'يرجى تفعيل خيار Anonymous في Firebase ← Authentication.';
+  if (c.startsWith('auth/') || c.startsWith('employee/')) return employeeAuthErrorMessage(e);
   return e?.message || String(e);
 }
-const fail = e => { console.error(e); toast(errMsg(e), 'err'); };
+const fail = e => { console.error(e?.code || 'operation-failed'); toast(errMsg(e), 'err'); };
 
 function shiftOf(d = new Date()) {
   const h = d.getHours();
@@ -344,7 +351,9 @@ function buzz(ok) {
 }
 
 /* ---------- session ---------- */
-let me = null, sessionId = null, parcels = [], allParcels = [], unsubParcels = null, booted = false;
+let me = null, sessionId = null, parcels = [], allParcels = [], unsubParcels = null;
+let signingIn = false, currentIdentityKey = null, sessionEpoch = 0;
+const activeFlowClosers = new Set();
 
 /* ---------- الأقسام / المنافذ ----------
    كل موظف له قسم (section). الأدمن يدير قسمه بس.
@@ -373,13 +382,15 @@ function portErr(r) {
 const secTag = x => isAll() ? `<span class="sec-tag">${esc(secName(secOf(x)))}</span>` : '';
 
 async function loadSections() {
+  const epoch = sessionEpoch;
   try {
     const s = await getDocs(collection(db, 'sections'));
+    if (epoch !== sessionEpoch) return;
     const list = s.docs.map(d => ({ id: d.id, ...d.data() }));
     const merged = list.map(x => { const d = DEFAULT_SECTIONS.find(y => y.id === x.id); return d ? { ...d, ...x, ports: Array.isArray(x.ports) ? x.ports : d.ports } : x; });
     sections = [...DEFAULT_SECTIONS.filter(d => !list.some(x => x.id === d.id)), ...merged]
       .sort((a, b) => (a.id === 'dhl' ? -1 : b.id === 'dhl' ? 1 : (a.name || '').localeCompare(b.name || '', 'ar')));
-  } catch (e) { console.warn('sections', e); sections = [...DEFAULT_SECTIONS]; }
+  } catch (e) { if (epoch !== sessionEpoch) return; console.warn('sections', e); sections = [...DEFAULT_SECTIONS]; }
 }
 function applySection() {
   curSec = me.isSuper ? (localStorage.getItem(LS_VIEW) || 'all') : secOf(me);
@@ -392,41 +403,48 @@ function setSection(id) {
   parcels = allParcels.filter(inSec);
 }
 
-const logFields = () => ({ empNo: me.no, empName: me.name, section: curSec, shift: shiftOf(), shiftDate: ymd(shiftDay()), sessionId, at: serverTimestamp() });
+const logFields = () => ({ empNo: me.no, empName: me.name, section: curSec, shift: shiftOf(), shiftDate: ymd(shiftDay()), sessionId, actorUid: me.uid, at: serverTimestamp() });
 const userFrom = (no, d) => ({ no, name: d.name, isAdmin: !!d.isAdmin || !!d.isSuper, isSuper: !!d.isSuper, section: secOf(d) });
 
-async function employeesEmpty() {
-  const s = await getDocs(query(collection(db, 'employees'), limit(1)));
-  return s.empty;
+function clearSessionView() {
+  sessionEpoch++;
+  for (const cancel of [...activeFlowClosers]) { void cancel(true); }
+  localStorage.removeItem(LS); // Discard the previous number-only session format.
+  if (unsubParcels) { unsubParcels(); unsubParcels = null; }
+  me = null; sessionId = null; parcels = []; allParcels = []; currentIdentityKey = null;
+  employees = []; allEmployees = [];
 }
-async function restore() {
-  try {
-    const s = JSON.parse(localStorage.getItem(LS) || 'null');
-    if (!s) return false;
-    const d = await getDoc(doc(db, 'employees', s.no));
-    if (!d.exists()) { localStorage.removeItem(LS); return false; }
-    me = userFrom(s.no, d.data());
-    sessionId = s.sessionId;
-    await loadSections(); applySection();
-    return true;
-  } catch { return false; }
-}
-async function doLogin(no) {
-  const s = await getDoc(doc(db, 'employees', no));
-  if (!s.exists()) { toast('الرقم الشخصي غير مسجل في النظام', 'err'); return; }
-  const d = s.data();
-  me = userFrom(no, d);
-  sessionId = uid();
-  localStorage.setItem(LS, JSON.stringify({ no, sessionId }));
-  await loadSections(); applySection();
-  await setDoc(doc(collection(db, 'logs')), { type: 'login', ...logFields(), section: me.isSuper ? 'all' : secOf(me) });
+const authViewKey = identity => JSON.stringify([identity.uid, identity.generation, identity.isOwnerAdmin, identity.profile?.name, identity.profile?.section, !!identity.profile?.isAdmin, !!identity.profile?.isSuper]);
+async function acceptIdentity(identity, recordLogin = false) {
+  const epoch = sessionEpoch;
+  const profile = identity.profile || {};
+  me = { ...userFrom(identity.employeeId, profile), uid: identity.uid,
+    isAdmin: identity.isOwnerAdmin || !!profile.isAdmin || !!profile.isSuper,
+    isSuper: identity.isOwnerAdmin || !!profile.isSuper };
+  currentIdentityKey = authViewKey(identity);
+  sessionId = sessionId || uid();
+  await loadSections();
+  if (epoch !== sessionEpoch || me?.uid !== identity.uid) return;
+  applySection();
+  if (recordLogin) await setDoc(doc(collection(db, 'logs')), {
+    type: 'login', ...logFields(), section: me.isSuper ? 'all' : secOf(me)
+  });
+  if (epoch !== sessionEpoch || me?.uid !== identity.uid) return;
   renderHome();
 }
-function logout() {
-  localStorage.removeItem(LS);
-  if (unsubParcels) { unsubParcels(); unsubParcels = null; }
-  me = null; sessionId = null; parcels = []; allParcels = [];
-  renderLogin();
+async function doLogin(no, password, firstPassword) {
+  signingIn = true;
+  try {
+    const identity = firstPassword
+      ? await authFlow.enroll(no, password)
+      : await authFlow.login(no, password);
+    clearSessionView();
+    await acceptIdentity(identity, true);
+  } finally { signingIn = false; }
+}
+async function logout() {
+  clearSessionView(); renderLogin();
+  try { await authFlow.logout(); } catch (e) { fail(e); }
 }
 
 /* ---------- screens ---------- */
@@ -436,48 +454,58 @@ function renderBoot(msg = 'جاري الاتصال…') {
   view(`<div class="wrap"><div class="center"><div class="spinner"></div><div class="mut">${esc(msg)}</div></div></div>`);
 }
 
-function renderSetup() {
-  view(`<div class="wrap">${brand()}
-    <div class="card"><h2>تسجيل أول أدمن</h2>
-      <p class="mut sm">النظام جديد ولا يوجد به موظفون. سجّل بياناتك بصفتك أدمن، ثم أضف بقية الموظفين من شاشة الإدارة.</p>
-      <label for="sName">الاسم</label><input id="sName" class="inp" autocomplete="off">
-      <label for="sNo">الرقم الشخصي</label><input id="sNo" class="inp" inputmode="numeric" autocomplete="off">
-      <button id="sGo" class="btn gold">إنشاء حساب الأدمن</button>
-    </div></div>`);
-  on('#sGo', 'click', async () => {
-    const name = val('#sName'), no = digits(val('#sNo'));
-    if (!name || !no) return toast('يرجى إدخال الاسم والرقم الشخصي', 'err');
-    try {
-      if (!(await employeesEmpty())) { toast('يوجد أدمن مسجل مسبقاً، يرجى تسجيل الدخول'); return renderLogin(); }
-      await setDoc(doc(db, 'employees', no), { name, isAdmin: true, isSuper: true, section: 'dhl', createdAt: serverTimestamp() });
-      await doLogin(no);
-    } catch (e) { fail(e); }
-  });
-}
-
 function renderLogin() {
   view(`<div class="wrap">${brand()}
     <div class="card"><h2>تسجيل الدخول</h2>
       <label for="lNo">الرقم الشخصي</label>
-      <input id="lNo" class="inp" inputmode="numeric" autocomplete="off" enterkeyhint="go">
-      <button id="lGo" class="btn gold">دخول</button>
+      <input id="lNo" class="inp" inputmode="numeric" autocomplete="username" enterkeyhint="next">
+      <div id="passwordStep" hidden></div>
+      <button id="lGo" class="btn gold">متابعة</button>
+      <p class="mut sm">إذا نسيت كلمة المرور، اطلب من الأدمن إعادة تعيين الدخول. تبقى حركاتك السابقة محفوظة.</p>
     </div></div>`);
-  let busy = false;
+  let busy = false, route = null;
+  const resetStep = () => { route = null; $('#passwordStep').hidden = true; $('#passwordStep').innerHTML = ''; $('#lGo').textContent = 'متابعة'; };
   const go = async () => {
     if (busy) return;
     const no = digits(val('#lNo'));
     if (!no) return toast('يرجى إدخال الرقم الشخصي', 'err');
-    busy = true; const b = $('#lGo'); if (b) { b.disabled = true; b.textContent = 'جاري الدخول…'; }
-    try { await doLogin(no); } catch (e) { fail(e); }
-    busy = false; const b2 = $('#lGo'); if (b2) { b2.disabled = false; b2.textContent = 'دخول'; }
+    busy = true; const button = $('#lGo'); if (button) button.disabled = true; if ($('#lNo')) $('#lNo').disabled = true;
+    try {
+      if (!route) {
+        route = await authFlow.readRoute(no);
+        if (!route || !route.enabled) { route = null; throw new Error('الرقم الشخصي غير مسجل أو تم تعطيله. تواصل مع الأدمن.'); }
+        const first = route.state === 'pending';
+        $('#passwordStep').hidden = false;
+        $('#passwordStep').innerHTML = `<p class="mut sm">${first ? 'أنشئ كلمة مرور لحسابك. ستستخدمها مع رقمك الشخصي على أي جهاز.' : 'أدخل كلمة المرور.'}</p>
+          <label for="lPassword">${first ? 'كلمة مرور جديدة' : 'كلمة المرور'}</label>
+          <input id="lPassword" class="inp" type="password" minlength="8" autocomplete="${first ? 'new-password' : 'current-password'}" enterkeyhint="${first ? 'next' : 'go'}">
+          ${first ? '<label for="lConfirm">تأكيد كلمة المرور</label><input id="lConfirm" class="inp" type="password" minlength="8" autocomplete="new-password" enterkeyhint="go">' : ''}`;
+        button.textContent = first ? 'إنشاء كلمة المرور والدخول' : 'دخول';
+        on('#lPassword', 'keydown', e => { if (e.key === 'Enter') go(); });
+        on('#lConfirm', 'keydown', e => { if (e.key === 'Enter') go(); });
+        $('#lPassword').focus();
+      } else {
+        const password = $('#lPassword')?.value || '';
+        const first = route.state === 'pending';
+        if (!password) throw new Error('أدخل كلمة المرور.');
+        if (first && password.length < 8) throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+        if (first && password !== ($('#lConfirm')?.value || '')) throw new Error('كلمتا المرور غير متطابقتين.');
+        await doLogin(route.employeeId, password, first);
+      }
+    } catch (e) { fail(e); }
+    finally { busy = false; if ($('#lGo')) $('#lGo').disabled = false; if ($('#lNo')) $('#lNo').disabled = false; }
   };
+  on('#lNo', 'input', resetStep);
   on('#lGo', 'click', go);
   on('#lNo', 'keydown', e => { if (e.key === 'Enter') go(); });
 }
 
 function startParcels() {
-  if (unsubParcels) return;
-  unsubParcels = onSnapshot(collection(db, 'parcels'), snap => {
+  if (unsubParcels || !me) return;
+  const epoch = sessionEpoch;
+  const parcelQuery = me.isSuper ? collection(db, 'parcels') : query(collection(db, 'parcels'), where('section', '==', secOf(me)));
+  unsubParcels = onSnapshot(parcelQuery, snap => {
+    if (epoch !== sessionEpoch || !me) return;
     allParcels = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     parcels = allParcels.filter(inSec);
     const ci = $('#cntIn'); if (ci) ci.textContent = parcels.filter(p => p.status === 'in').length;
@@ -610,6 +638,8 @@ function parts(ts) {
 }
 function plainWhen(ts) { const [d, s, t] = parts(ts); return d ? `${d}، ${s}، ${t}` : ''; }
 async function exportExcel(from, to) {
+  const epoch = sessionEpoch;
+  if (!me) return;
   if (typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
   if (!from || !to) return toast('يرجى اختيار التاريخين', 'err');
   if (from > to) [from, to] = [to, from];
@@ -663,6 +693,7 @@ async function exportExcel(from, to) {
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
   } catch (e) { if (e?.name === 'AbortError') return; }
+  if (epoch !== sessionEpoch || !me) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
@@ -724,7 +755,8 @@ function enhancedLoop(sc, onText, paused) {
 
 /* ---------- flow engine (كمّل كل الخطوات أو X يلغي) ---------- */
 function openFlow(title, kind) {
-  let cancelled = false, finished = false, scanner = null, pending = null, torchOn = false, rcTag = '';
+  const epoch = sessionEpoch, actorUid = me?.uid;
+  let cancelled = false, finished = false, scanner = null, scannerStart = null, pending = null, torchOn = false, rcTag = '';
   const ov = document.createElement('div');
   ov.className = 'flow ' + kind;
   ov.innerHTML = `<div class="fh"><button class="x" aria-label="إلغاء العملية">✕</button><div class="ft">${esc(title)}</div><div class="steps"></div></div><div class="fb"></div>`;
@@ -734,26 +766,37 @@ function openFlow(title, kind) {
   async function stopScan() {
     if (!scanner) return;
     const s = scanner; scanner = null;
+    if (scannerStart) { try { await scannerStart; } catch {} }
     try { await s.stop(); } catch {}
     try { s.clear(); } catch {}
     torchOn = false;
   }
-  async function close() {
+  const isCurrent = () => !cancelled && epoch === sessionEpoch && !!actorUid && me?.uid === actorUid;
+  async function close(immediate = false) {
     if (cancelled && !ov.isConnected) return;
     cancelled = true;
+    activeFlowClosers.delete(close);
+    if (pending) { const resolve = pending; pending = null; resolve(null); }
+    // Stop live tracks immediately, including while scanner.stop is settling.
+    ov.querySelectorAll('video').forEach(video => video.srcObject?.getTracks?.().forEach(track => track.stop()));
+    if (immediate) ov.remove();
     await stopScan();
-    ov.classList.add('closing');
-    await new Promise(r => setTimeout(r, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 230));
-    ov.remove(); document.body.classList.remove('noscroll');
-    if (pending) { const p = pending; pending = null; p(null); }
+    if (!immediate) {
+      ov.classList.add('closing');
+      await new Promise(r => setTimeout(r, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 230));
+      ov.remove();
+    }
+    if (!activeFlowClosers.size) document.body.classList.remove('noscroll');
   }
+  activeFlowClosers.add(close);
   ov.querySelector('.x').onclick = () => { const wasDone = finished; close(); if (!wasDone) toast('تم إلغاء العملية دون حفظ أي بيانات'); };
 
   return {
-    step(i, n) { ov.querySelector('.steps').textContent = `${i} من ${n}`; },
+    close, isCurrent,
+    step(i, n) { if (!isCurrent()) return; ov.querySelector('.steps').textContent = `${i} من ${n}`; },
     scan(prompt, validate) {
       return new Promise(async resolve => {
-        if (cancelled) return resolve(null);
+        if (!isCurrent()) return resolve(null);
         pending = resolve;
         body.innerHTML = (rcTag ? `<div class="rc-tag"><span>الوصل</span><b>${esc(rcTag)}</b></div>` : '') +
           `<p class="prompt">${esc(prompt)}</p><div id="reader" class="reader"></div><button type="button" class="flash-btn" id="flashBtn">🔦 تشغيل الفلاش</button>
@@ -771,7 +814,7 @@ function openFlow(title, kind) {
             last = text; lastAt = now; busy = true;
             let r;
             try { r = await validate(text); } catch (e) { r = { err: errMsg(e) }; }
-            if (cancelled) return;
+            if (!isCurrent()) return;
             if (r.err && r.alert) {
               const rd = body.querySelector('.reader');
               if (rd) {
@@ -808,7 +851,9 @@ function openFlow(title, kind) {
             } else {
               await new Promise(z => setTimeout(z, 280));
             }
-            await stopScan(); pending = null; resolve(r.ok);
+            await stopScan();
+            if (!isCurrent()) return;
+            pending = null; resolve(r.ok);
           };
 
           /* الإدخال اليدوي */
@@ -823,12 +868,19 @@ function openFlow(title, kind) {
           body.querySelector('#manGo').onclick = manSubmit;
           manInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); manSubmit(); } });
 
-          await scanner.start({ facingMode: 'environment' }, {
+          const startingScanner = scanner;
+          scannerStart = startingScanner.start({ facingMode: 'environment' }, {
             fps: 12,
             qrbox: (w, h) => ({ width: Math.floor(w * 0.92), height: Math.max(90, Math.floor(Math.min(w, h) * 0.42)) }),
             videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
           }, text => onText(text), () => {});
-          enhancedLoop(scanner, onText, () => busy || cancelled);
+          await scannerStart; scannerStart = null;
+          if (!isCurrent()) {
+            try { await startingScanner.stop(); } catch {}
+            try { startingScanner.clear(); } catch {}
+            return;
+          }
+          enhancedLoop(scanner, onText, () => busy || !isCurrent());
 
           const flashBtn = body.querySelector('#flashBtn');
           if (flashBtn) {
@@ -860,13 +912,14 @@ function openFlow(title, kind) {
             };
           }
         } catch (e) {
+          if (!isCurrent()) return;
           body.innerHTML = `<p class="prompt">${esc(prompt)}</p><div class="err-box">تعذّر تشغيل الكاميرا. يرجى السماح للموقع باستخدام الكاميرا من إعدادات Safari، ثم الضغط على ✕ والبدء من جديد.<br><small class="mut">${esc(e?.message || e)}</small></div>`;
         }
       });
     },
     form(fields, ctx) {
       return new Promise(resolve => {
-        if (cancelled) return resolve(null);
+        if (!isCurrent()) return resolve(null);
         pending = resolve;
         body.innerHTML = (ctx ? `<div class="ctx">${ctx}</div>` : '') + fields.map(f =>
           `<label for="f_${f.key}">${esc(f.label)} <span class="req">*</span></label>` +
@@ -878,14 +931,15 @@ function openFlow(title, kind) {
         els.forEach(e => e.addEventListener('input', chk));
         setTimeout(() => els[0]?.focus(), 150);
         btn.onclick = () => {
-          if (btn.disabled) return;
+          if (btn.disabled || !isCurrent()) return;
           const out = {}; fields.forEach((f, i) => out[f.key] = els[i].value.trim());
           pending = null; resolve(out);
         };
       });
     },
-    busy(msg) { body.innerHTML = `<div class="center" style="min-height:40vh"><div class="spinner"></div><div class="mut">${esc(msg)}</div></div>`; },
+    busy(msg) { if (!isCurrent()) return; body.innerHTML = `<div class="center" style="min-height:40vh"><div class="spinner"></div><div class="mut">${esc(msg)}</div></div>`; },
     result(ok, msg, rows = []) {
+      if (!isCurrent()) return;
       finished = true;
       body.innerHTML = `<div class="res-box ${ok ? 'ok' : 'bad'}"><div class="ico">${ok ? '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : '!'}</div><h2>${esc(msg)}</h2>
         ${rows.map(([k, v]) => `<div class="row"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
@@ -897,6 +951,7 @@ function openFlow(title, kind) {
 
 /* ---------- إدخال وصل أمانة ---------- */
 async function flowAdd() {
+  if (!me) return;
   if (isAll()) return toast('يرجى اختيار القسم أولاً', 'err');
   const f = openFlow('إدخال وصل أمانة', 'add');
   f.step(1, 3);
@@ -914,31 +969,33 @@ async function flowAdd() {
     }
     return { ok: p };
   });
-  if (!r) return;
+  if (!r || !f.isCurrent()) return;
 
   f.step(2, 3);
   const fields = [{ key: 'contents', label: 'المحتويات', multi: true }];
   const fm = await f.form(fields, `وصل ${esc(r.receipt)} / ${esc(r.year)}`);
-  if (!fm) return;
+  if (!fm || !f.isCurrent()) return;
 
   f.step(3, 3);
   const shelf = await f.scan('امسح باركود الرف', t => {
     const s = parseShelf(t);
     return s ? { ok: s } : { err: 'هذا ليس باركود رف' };
   });
-  if (!shelf) return;
+  if (!shelf || !f.isCurrent()) return;
 
   f.busy('جاري الحفظ…');
   try {
+    if (!f.isCurrent()) return;
     const lf = logFields();
     const b = writeBatch(db);
     b.set(doc(db, 'parcels', r.docId), {
       section: curSec, receipt: r.receipt, year: r.year, port: r.port, raw: r.raw,
       contents: fm.contents, shelf, status: 'in',
-      addedBy: me.no, addedByName: me.name, addedShift: lf.shift, addedAt: serverTimestamp()
+      addedBy: me.no, addedByUid: me.uid, addedByName: me.name, addedShift: lf.shift, addedAt: serverTimestamp()
     });
     b.set(doc(collection(db, 'logs')), { type: 'add', parcelId: r.docId, receipt: r.receipt, year: r.year, shelf, contents: fm.contents, ...lf });
     await b.commit();
+    if (!f.isCurrent()) return;
     f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['المحتويات', fm.contents], ['الرف', shelf]]);
   } catch (e) {
     console.error(e);
@@ -948,6 +1005,7 @@ async function flowAdd() {
 
 /* ---------- تسليم طرد ---------- */
 async function flowDeliver() {
+  if (!me) return;
   if (isAll()) return toast('يرجى اختيار القسم أولاً', 'err');
   const f = openFlow('تسليم طرد', 'del');
   f.step(1, 3);
@@ -963,7 +1021,7 @@ async function flowDeliver() {
     p = { id: pid(x), ...d };
     return { ok: x };
   });
-  if (!r) return;
+  if (!r || !f.isCurrent()) return;
 
   f.step(2, 3);
   const shelf = await f.scan(`امسح باركود الرف ${p.shelf}`, t => {
@@ -972,24 +1030,26 @@ async function flowDeliver() {
     if (s !== p.shelf) return { err: `الطرد مسجل على الرف ${p.shelf}، بينما تم مسح الرف ${s}` };
     return { ok: s };
   });
-  if (!shelf) return;
+  if (!shelf || !f.isCurrent()) return;
 
   f.step(3, 3);
   const fields = [{ key: 'to', label: 'اسم المستلم' }, { key: 'ref', label: 'اسم الكتاب أو رقم إشعار التسليم' }];
   fields.submit = 'تأكيد التسليم';
   const fm = await f.form(fields, `وصل ${esc(p.receipt)} / ${esc(p.year)}، ${esc(p.contents)}`);
-  if (!fm) return;
+  if (!fm || !f.isCurrent()) return;
 
   f.busy('جاري الحفظ…');
   try {
+    if (!f.isCurrent()) return;
     const lf = logFields();
     const b = writeBatch(db);
     b.update(doc(db, 'parcels', p.id), {
       status: 'out', deliveredTo: fm.to, deliveryRef: fm.ref,
-      deliveredBy: me.no, deliveredByName: me.name, deliveredShift: lf.shift, deliveredAt: serverTimestamp()
+      deliveredBy: me.no, deliveredByUid: me.uid, deliveredByName: me.name, deliveredShift: lf.shift, deliveredAt: serverTimestamp()
     });
     b.set(doc(collection(db, 'logs')), { type: 'deliver', parcelId: p.id, receipt: p.receipt, year: p.year, shelf: p.shelf, contents: p.contents, deliveredTo: fm.to, deliveryRef: fm.ref, ...lf });
     await b.commit();
+    if (!f.isCurrent()) return;
     f.result(true, 'تم تسليم الطرد وإخراجه من المستودع', [['الوصل', `${p.receipt} / ${p.year}`], ['المستلم', fm.to], ['الكتاب / الإشعار', fm.ref]]);
   } catch (e) {
     console.error(e);
@@ -1024,8 +1084,13 @@ async function renderLog() {
     </div>
     <div id="logs"><div class="spinner"></div></div></div>`);
   on('#back', 'click', renderHome);
+  const isCurrent = currentView();
   try {
-    const s = await getDocs(query(collection(db, 'logs'), orderBy('at', 'desc'), limit(2000)));
+    const constraints = [];
+    if (!me.isSuper || !isAll()) constraints.push(where('section', '==', curSec));
+    if (!me.isAdmin) constraints.push(where('type', 'in', ['add', 'deliver']));
+    const s = await getDocs(query(collection(db, 'logs'), ...constraints, orderBy('at', 'desc'), limit(2000)));
+    if (!isCurrent()) return;
     const logs = s.docs.map(d => d.data()).filter(l => (isAll() ? true : secOf(l) === curSec) && (me.isAdmin || l.type !== 'login'));
     const active = new Set(logs.filter(l => l.type === 'add' || l.type === 'deliver').map(l => l.sessionId));
     logs.forEach(l => { if (l.type === 'login') l.idle = !active.has(l.sessionId); });
@@ -1041,6 +1106,7 @@ async function renderLog() {
     });
     draw();
   } catch (e) {
+    if (!isCurrent()) return;
     const box = $('#logs'); if (box) box.innerHTML = `<div class="err-box">${esc(errMsg(e))}</div>`;
   }
 }
@@ -1068,6 +1134,7 @@ function secPicker(id) {
 }
 const pickedSec = id => isAll() ? ($('#' + id)?.value || 'dhl') : curSec;
 async function tabEmployees() {
+  viewEpoch++;
   $('#tabBody').innerHTML = `
     <div class="card"><h3>إضافة موظف</h3>
       <label for="eName">الاسم</label><input id="eName" class="inp" autocomplete="off">
@@ -1087,44 +1154,62 @@ async function tabEmployees() {
 }
 
 async function loadEmployees() {
+  if (!me?.isAdmin) return;
+  const isCurrent = currentView(), container = $('#eList');
+  const stillHere = () => isCurrent() && container && container === $('#eList');
   try {
-    const s = await getDocs(collection(db, 'employees'));
-    allEmployees = s.docs.map(d => ({ no: d.id, ...d.data() }));
-    const noSuper = !allEmployees.some(e => e.isSuper);
+    const scope = me.isSuper ? [] : [where('section', '==', secOf(me))];
+    const [s, accessSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'employees'), ...scope)),
+      getDocs(query(collection(db, 'employeeAccess'), ...scope))
+    ]);
+    if (!stillHere()) return;
+    const accessById = new Map(accessSnapshot.docs.map(d => [d.id, d.data()]));
+    allEmployees = s.docs.map(d => ({ no: d.id, ...d.data(), accessActive: accessById.get(d.id)?.active === true }));
     /* أدمن القسم يشوف موظفين قسمه بس، والمسؤول العام ما يطلع عنده */
     employees = allEmployees
-      .filter(e => isAll() ? true : secOf(e) === curSec && (!e.isSuper || me.isSuper))
+      .filter(e => (isAll() ? true : secOf(e) === curSec && (!e.isSuper || me.isSuper)))
       .sort((a, b) => (b.isSuper ? 1 : 0) - (a.isSuper ? 1 : 0) || (b.isAdmin ? 1 : 0) - (a.isAdmin ? 1 : 0) || (a.name || '').localeCompare(b.name || '', 'ar'));
     const box = $('#eList'); if (!box) return;
     $('#eCnt').textContent = `(${employees.length})`;
-    const claim = noSuper && me.isAdmin
-      ? `<div class="err-box" style="margin-bottom:12px">لا يوجد مسؤول عام للنظام. من يضغط هذا الزر يصبح المسؤول العام ويتمكن من استعراض جميع الأقسام وإدارتها.<button id="claimSuper" class="btn gold" style="margin-top:10px">تعييني مسؤولاً عاماً</button></div>` : '';
-    box.innerHTML = claim + employees.map(e => `
+    box.innerHTML = employees.map(e => `
       <div class="emp"><div class="who"><div class="nm">${esc(e.name)}${e.isSuper ? '<span class="adm">مسؤول عام</span>' : e.isAdmin ? '<span class="adm">أدمن</span>' : ''}${isAll() && !e.isSuper ? `<span class="sec-tag">${esc(secName(secOf(e)))}</span>` : ''}</div><div class="no">${esc(e.no)}</div></div>
         ${e.isSuper ? '' : `<button class="mini" data-a="adm" data-no="${esc(e.no)}">${e.isAdmin ? 'إلغاء صلاحية الأدمن' : 'منح صلاحية أدمن'}</button>
         ${me.isSuper && sections.length > 1 ? `<button class="mini" data-a="mv" data-no="${esc(e.no)}">نقل</button>` : ''}
-        <button class="mini dng" data-a="del" data-no="${esc(e.no)}">حذف</button>`}</div>`).join('');
-    box.querySelectorAll('.mini').forEach(b => b.onclick = () => b.dataset.a === 'adm' ? toggleAdmin(b.dataset.no) : b.dataset.a === 'mv' ? moveEmployee(b.dataset.no) : removeEmployee(b.dataset.no));
-    on('#claimSuper', 'click', claimSuper);
-  } catch (e) { fail(e); }
+        <button class="mini dng" data-a="reset" data-no="${esc(e.no)}">إعادة تعيين</button>`}</div>`).join('');
+    box.querySelectorAll('.mini').forEach(b => b.onclick = () => b.dataset.a === 'adm' ? toggleAdmin(b.dataset.no) : b.dataset.a === 'mv' ? moveEmployee(b.dataset.no) : resetEmployee(b.dataset.no));
+  } catch (e) { if (stillHere()) fail(e); }
 }
 
 async function addEmployee() {
+  if (!me?.isAdmin) return;
+  const isCurrent = currentView(), container = $('#eName');
+  const stillHere = () => isCurrent() && container === $('#eName');
+  const actorNo = me.no, section = pickedSec('eSec');
   const name = val('#eName'), no = digits(val('#eNo')), isAdmin = $('#eAdm').checked;
   if (!name || !no) return toast('يرجى إدخال الاسم والرقم الشخصي', 'err');
   try {
-    const ex = await getDoc(doc(db, 'employees', no));
-    if (ex.exists()) return toast(me.isSuper ? `هذا الرقم مسجل مسبقاً في ${secName(secOf(ex.data()))}` : 'هذا الرقم مسجل مسبقاً', 'err');
-    await setDoc(doc(db, 'employees', no), { name, isAdmin, section: pickedSec('eSec'), createdAt: serverTimestamp(), createdBy: me.no });
+    const route = await authFlow.readRoute(no);
+    if (!stillHere()) return;
+    if (route?.enabled) return toast('هذا الرقم مسجل مسبقاً', 'err');
+    const profile = { name, isAdmin, section, createdBy: actorNo };
+    if (route) await authFlow.readdEmployee(no, profile);
+    else await authFlow.addEmployee(no, { ...profile, createdAt: serverTimestamp() });
+    if (!stillHere()) return;
     toast(`تمت إضافة ${name}`);
     $('#eName').value = ''; $('#eNo').value = ''; $('#eAdm').checked = false;
     loadEmployees();
-  } catch (e) { fail(e); }
+  } catch (e) { if (stillHere()) fail(e); }
 }
 
+let addingBulk = false;
 async function addBulk() {
+  if (addingBulk || !me?.isAdmin) return;
+  const isCurrent = currentView(), container = $('#bulk'), button = $('#bulkGo');
+  const stillHere = () => isCurrent() && container === $('#bulk');
+  const actorNo = me.no;
   const lines = val('#bulk').split(/\n+/).map(l => l.trim()).filter(Boolean);
-  const have = new Set(allEmployees.map(e => e.no));
+  const have = new Set(allEmployees.filter(e => e.accessActive).map(e => e.no));
   const sec = pickedSec('bSec');
   const rows = [];
   for (const l of lines) {
@@ -1134,62 +1219,82 @@ async function addBulk() {
     if (no && name && !have.has(no)) { rows.push({ no, name }); have.add(no); }
   }
   if (!rows.length) return toast('لم يتم العثور على موظفين جدد في القائمة (أو أن أرقامهم مسجلة في قسم آخر)', 'err');
+  let completed = 0, skipped = 0;
+  addingBulk = true; if ($('#bulkGo')) $('#bulkGo').disabled = true;
   try {
-    for (let i = 0; i < rows.length; i += 400) {
-      const b = writeBatch(db);
-      rows.slice(i, i + 400).forEach(r => b.set(doc(db, 'employees', r.no), { name: r.name, isAdmin: false, section: sec, createdAt: serverTimestamp(), createdBy: me.no }));
-      await b.commit();
+    for (const r of rows) {
+      if (!stillHere()) return;
+      const route = await authFlow.readRoute(r.no);
+      if (!stillHere()) return;
+      const profile = { name: r.name, isAdmin: false, section: sec, createdBy: actorNo };
+      if (route?.enabled) { skipped++; continue; }
+      if (route) await authFlow.readdEmployee(r.no, profile);
+      else await authFlow.addEmployee(r.no, { ...profile, createdAt: serverTimestamp() });
+      completed++;
     }
-    toast(`تمت إضافة ${rows.length} موظف`);
+    if (!stillHere()) return;
+    toast(`تمت إضافة ${completed} موظف${skipped ? `، وتجاوز ${skipped} مسجل مسبقاً` : ''}`);
     $('#bulk').value = '';
-    loadEmployees();
-  } catch (e) { fail(e); }
+    await loadEmployees();
+  } catch (e) {
+    if (!stillHere()) return;
+    toast(`تمت إضافة ${completed} موظف قبل التوقف. ${errMsg(e)}`, 'err');
+    await loadEmployees();
+  } finally { addingBulk = false; if (button?.isConnected) button.disabled = false; }
 }
 
 async function toggleAdmin(no) {
+  if (!me?.isAdmin) return;
+  const isCurrent = currentView();
   const e = employees.find(x => x.no === no); if (!e) return;
   if (e.isSuper) return;
-  const admins = allEmployees.filter(x => x.isAdmin && !x.isSuper && secOf(x) === secOf(e)).length;
+  const admins = allEmployees.filter(x => x.accessActive && x.isAdmin && !x.isSuper && secOf(x) === secOf(e)).length;
   if (e.isAdmin && no === me.no) return toast('لا يمكنك إلغاء صلاحية الأدمن عن نفسك', 'err');
   if (e.isAdmin && admins <= 1 && !me.isSuper) return toast('يجب أن يبقى أدمن واحد على الأقل في القسم', 'err');
-  try { await updateDoc(doc(db, 'employees', no), { isAdmin: !e.isAdmin }); loadEmployees(); } catch (err) { fail(err); }
+  try { await updateDoc(doc(db, 'employees', no), { isAdmin: !e.isAdmin }); if (isCurrent()) loadEmployees(); } catch (err) { if (isCurrent()) fail(err); }
 }
 
-async function removeEmployee(no) {
-  const e = employees.find(x => x.no === no); if (!e) return;
-  if (no === me.no) return toast('لا يمكنك حذف حسابك', 'err');
-  if (e.isSuper) return;
-  if (e.isAdmin && !me.isSuper && allEmployees.filter(x => x.isAdmin && !x.isSuper && secOf(x) === secOf(e)).length <= 1) return toast('يجب أن يبقى أدمن واحد على الأقل في القسم', 'err');
-  if (!confirm(`هل تريد حذف ${e.name}؟ ستبقى حركاته السابقة محفوظة في السجل.`)) return;
-  try { await deleteDoc(doc(db, 'employees', no)); toast('تم الحذف'); loadEmployees(); } catch (err) { fail(err); }
-}
-
-async function claimSuper() {
-  if (!confirm('هل تريد تعيين نفسك مسؤولاً عاماً؟ ستتمكن من استعراض جميع الأقسام وإدارتها.')) return;
+const resettingEmployees = new Set();
+async function resetEmployee(no) {
+  if (!me?.isAdmin || resettingEmployees.has(no)) return;
+  const isCurrent = currentView();
+  const e = employees.find(x => x.no === no); if (!e || e.isSuper) return;
+  if (no === me.no) return toast('لا يمكنك إعادة تعيين حسابك من هنا', 'err');
+  if (!confirm(`إعادة تعيين دخول ${e.name}؟ سيختار كلمة مرور جديدة، وسيبقى الاسم والرقم والسجل محفوظين.`)) return;
+  resettingEmployees.add(no);
+  const button = document.querySelector(`[data-a="reset"][data-no="${no}"]`);
+  if (button) button.disabled = true;
   try {
-    const s = await getDocs(collection(db, 'employees'));
-    if (s.docs.some(d => d.data().isSuper)) { toast('يوجد مسؤول عام مسجل مسبقاً', 'err'); return loadEmployees(); }
-    await updateDoc(doc(db, 'employees', me.no), { isSuper: true, isAdmin: true });
-    me.isSuper = true; me.isAdmin = true;
-    setSection('all');
-    toast('تم تعيينك مسؤولاً عاماً');
-    renderAdmin();
-  } catch (e) { fail(e); }
+    await authFlow.resetEmployee(no);
+    if (!isCurrent()) return;
+    toast('تمت إعادة التعيين. يستطيع الموظف اختيار كلمة مرور جديدة عند الدخول.');
+    await loadEmployees();
+  } catch (err) {
+    if (isCurrent()) {
+      toast(`${errMsg(err)} إذا انقطعت العملية، اضغط إعادة تعيين مجدداً لإكمالها.`, 'err');
+      await loadEmployees();
+    }
+  } finally { resettingEmployees.delete(no); if (button?.isConnected) button.disabled = false; }
 }
 
 async function moveEmployee(no) {
+  if (!me?.isAdmin) return;
+  const isCurrent = currentView();
   const e = allEmployees.find(x => x.no === no); if (!e || !me.isSuper) return;
   const opts = sections.map((x, i) => `${i + 1}- ${x.name}`).join('\n');
   const ans = prompt(`اختر القسم الذي سيُنقل إليه ${e.name}، واكتب رقمه:\n${opts}`);
   const i = parseInt(digits(ans || ''), 10) - 1;
   if (!(i >= 0 && i < sections.length)) return;
-  try { await updateDoc(doc(db, 'employees', no), { section: sections[i].id }); toast(`تم النقل إلى ${sections[i].name}`); loadEmployees(); } catch (err) { fail(err); }
+  try { const b = writeBatch(db); b.update(doc(db, 'employees', no), { section: sections[i].id }); b.update(doc(db, 'employeeAccess', no), { section: sections[i].id }); await b.commit(); if (!isCurrent()) return; toast(`تم النقل إلى ${sections[i].name}`); if (isCurrent()) loadEmployees(); } catch (err) { if (isCurrent()) fail(err); }
 }
 
 /* ---------- الأقسام (للمسؤول العام) ---------- */
 async function tabSections() {
-  if (!me.isSuper) return tabEmployees();
+  viewEpoch++;
+  if (!me?.isSuper) return;
+  const isCurrent = currentView(), container = $('#tabBody');
   await loadSections();
+  if (!isCurrent() || container !== $('#tabBody')) return;
   const counts = id => allParcels.filter(p => secOf(p) === id && p.status === 'in').length;
   $('#tabBody').innerHTML = `
     <div class="card"><h3>إضافة قسم / منفذ</h3>
@@ -1210,7 +1315,8 @@ async function tabSections() {
     if (taken) return toast(`الكود ${taken[0]} مسجل مسبقاً لـ ${taken[1].name}`, 'err');
     try {
       await setDoc(doc(db, 'sections', 's' + Date.now().toString(36)), { name, ports, createdAt: serverTimestamp(), createdBy: me.no });
-      toast(`تمت إضافة ${name}`); tabSections();
+      if (!stillHere()) return;
+    toast(`تمت إضافة ${name}`); tabSections();
     } catch (e) { fail(e); }
   });
   document.querySelectorAll('.sec-row .mini').forEach(b => b.onclick = async () => {
@@ -1231,6 +1337,7 @@ async function tabSections() {
 }
 
 function tabBarcode() {
+  viewEpoch++;
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
   $('#tabBody').innerHTML = `
     <div class="card"><h3>مولّد باركود الرفوف</h3>
@@ -1266,21 +1373,22 @@ function tabBarcode() {
 }
 
 /* ---------- boot ---------- */
+localStorage.removeItem(LS);
 renderBoot();
-onAuthStateChanged(auth, async user => {
-  if (!user) {
-    try { await signInAnonymously(auth); }
-    catch (e) { view(`<div class="wrap">${brand()}<div class="err-box">تعذّر الاتصال بقاعدة البيانات.<br><small>${esc(errMsg(e))}</small></div></div>`); }
-    return;
+authFlow.watch(async identity => {
+  if (signingIn) return;
+  if (!identity) {
+    // A repeated signed-out notification must not erase the password retry form.
+    if (!me && $('#lNo')) return;
+    clearSessionView(); renderLogin(); return;
   }
-  if (booted) return; booted = true;
-  try {
-    if (await restore()) return renderHome();
-    if (await employeesEmpty()) return renderSetup();
-    renderLogin();
-  } catch (e) {
-    view(`<div class="wrap">${brand()}<div class="err-box">${esc(errMsg(e))}</div></div>`);
-  }
+  const key = authViewKey(identity);
+  if (key === currentIdentityKey) return;
+  try { clearSessionView(); await acceptIdentity(identity, false); }
+  catch (e) { clearSessionView(); renderLogin(); fail(e); }
+}, error => {
+  if (signingIn) return;
+  clearSessionView(); renderLogin(); fail(error);
 });
 </script>
 </body>
