@@ -109,7 +109,16 @@ select.inp{appearance:none;-webkit-appearance:none}
 .tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tab{background:transparent;border:1.5px solid var(--line);color:var(--txt);border-radius:12px;padding:11px;font-weight:700}
 .tab.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
-.emp{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+.emp{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:16px 0;border-top:1px solid var(--line)}
+.emp .who{flex-basis:100%!important}
+.emp .nm{overflow-wrap:anywhere}
+.emp .mini{flex:1 1 calc(50% - 10px);min-height:44px;padding:9px 8px}
+.export-filters{max-width:420px;margin:20px auto;text-align:center}
+.export-filters label{margin-top:0}
+.export-filters>div{min-width:0}
+.export-filters input[type=date]{display:block;min-width:0;max-width:100%;appearance:none;-webkit-appearance:none;text-align:center;direction:ltr;padding:12px 8px;font-size:15px}
+.export-filters input::-webkit-date-and-time-value{text-align:center}
+@media(max-width:360px){.export-filters{grid-template-columns:1fr}}
 .emp:first-child{border-top:0}
 .emp .who{flex:1;min-width:0}
 .emp .nm{font-weight:700}
@@ -617,7 +626,7 @@ function renderList(kind) {
 function renderExport() {
   if (!me?.isAdmin) return;
   view(`<div class="wrap"><header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">تصدير Excel · ${esc(secName(curSec))}</div></header>
-    <div class="grid2"><div><label for="xFrom">من تاريخ</label><input id="xFrom" type="date" class="inp"></div><div><label for="xTo">إلى تاريخ</label><input id="xTo" type="date" class="inp"></div></div>
+    <div class="grid2 export-filters"><div><label for="xFrom">من تاريخ</label><input id="xFrom" type="date" class="inp"></div><div><label for="xTo">إلى تاريخ</label><input id="xTo" type="date" class="inp"></div></div>
     <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات بنفس تنسيق الجرد السابق.</p>
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}</div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
