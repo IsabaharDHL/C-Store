@@ -168,12 +168,22 @@ service cloud.firestore {
     function sectionAdmin() {
       return activeEmployee() && profile(binding().employeeId).get('isAdmin', false) == true;
     }
-    function managerForSection(section) {
-      return globalAdmin() || (sectionAdmin() && section == actorSection());
+    function scopedEmployee(section, adminRequired) {
+      let b = binding();
+      let a = access(b.employeeId);
+      let p = profile(b.employeeId);
+      return a.active == true && a.role == 'employee' && a.uid == request.auth.uid
+        && a.generation == b.generation
+        && (p.get('isSuper', false) == true || (a.section == section
+          && (!adminRequired || p.get('isAdmin', false) == true)));
     }
-    function actorInSection(section) {
-      return validSection(section) && (globalAdmin() || (activeEmployee() && section == actorSection()));
+    function scopedActor(section, adminRequired) {
+      return signedIn() && validSection(section)
+        && (owner() ? true : (exists(/databases/$(database)/documents/uidBindings/$(request.auth.uid))
+          && scopedEmployee(section, adminRequired)));
     }
+    function managerForSection(section) { return scopedActor(section, true); }
+    function actorInSection(section) { return scopedActor(section, false); }
     function claimableProfile(id) {
       return profile(id).get('isSuper', false) == false && profile(id).section == access(id).section;
     }
@@ -251,15 +261,28 @@ service cloud.firestore {
         && request.resource.data.ports is list && request.resource.data.ports.size() <= 100;
       allow delete: if false;
     }
+    function permittedPort(section, port) {
+      return exists(/databases/$(database)/documents/sections/$(section))
+        ? port in get(/databases/$(database)/documents/sections/$(section)).data.ports
+        : section == 'dhl' && port == '2201';
+    }
+    function validOperationId(d) {
+      return d.operationId is string && d.operationId.size() > 0 && d.operationId.size() <= 128;
+    }
+    function linkedLog(id, d, type) {
+      let l = getAfter(/databases/$(database)/documents/logs/$(d.operationId)).data;
+      return validOperationId(d) && !exists(/databases/$(database)/documents/logs/$(d.operationId))
+        && l.parcelId == id && l.type == type && l.actorUid == request.auth.uid && l.at == request.time;
+    }
     function validParcelCreate(d) {
       return d.keys().hasAll(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
-          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt'])
+          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt', 'operationId'])
         && d.keys().hasOnly(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
-          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt'])
+          'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt', 'operationId'])
         && actorInSection(d.section) && d.status == 'in'
         && d.receipt is string && d.receipt.size() > 0 && d.receipt.size() <= 100
         && d.year is string && d.year.matches('^20[0-9]{2}$')
-        && d.port is string && d.port.matches('^[0-9]{4}$')
+        && d.port is string && d.port.matches('^[0-9]{4}$') && permittedPort(d.section, d.port)
         && d.raw is string && d.raw.size() <= 200
         && d.contents is string && d.contents.size() > 0 && d.contents.size() <= 20000
         && d.shelf is string && d.shelf.matches('^[A-Z][1-9][0-9]*$')
@@ -273,11 +296,11 @@ service cloud.firestore {
       allow get: if globalAdmin() || (activeEmployee()
         && (!exists(/databases/$(database)/documents/parcels/$(id)) || resource.data.section == actorSection()));
       allow list: if globalAdmin() || (activeEmployee() && resource.data.section == actorSection());
-      allow create: if validParcelCreate(request.resource.data);
-      allow update: if actorInSection(resource.data.section)
+      allow create: if validParcelCreate(request.resource.data) && linkedLog(id, request.resource.data, 'add');
+      allow update: if (actorInSection(resource.data.section)
         && resource.data.status == 'in' && request.resource.data.status == 'out'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveredTo', 'deliveryRef',
-          'deliveredBy', 'deliveredByUid', 'deliveredByName', 'deliveredShift', 'deliveredAt'])
+          'deliveredBy', 'deliveredByUid', 'deliveredByName', 'deliveredShift', 'deliveredAt', 'operationId'])
         && request.resource.data.deliveredTo is string && request.resource.data.deliveredTo.size() > 0
         && request.resource.data.deliveredTo.size() <= 1000
         && request.resource.data.deliveryRef is string && request.resource.data.deliveryRef.size() > 0
@@ -285,21 +308,44 @@ service cloud.firestore {
         && request.resource.data.deliveredBy == actorId() && request.resource.data.deliveredByUid == request.auth.uid
         && request.resource.data.deliveredByName == profile(actorId()).name
         && request.resource.data.deliveredShift is string && request.resource.data.deliveredShift.size() <= 100
-        && request.resource.data.deliveredAt == request.time;
+        && request.resource.data.deliveredAt == request.time
+        && linkedLog(id, request.resource.data, 'deliver')) || parcelChange(id);
       allow delete: if false;
+    }
+    function parcelChange(id) {
+      let a = resource.data;
+      let b = request.resource.data;
+      let l = getAfter(/databases/$(database)/documents/logs/$(b.operationId)).data;
+      return scopedActor(a.section, l.type != 'move') && validOperationId(b)
+        && b.changedAt == request.time && b.changedByUid == request.auth.uid
+        && b.changeReason is string && b.changeReason.size() > 0 && b.changeReason.size() <= 1000
+        && b.shelf is string && b.shelf.matches('^[A-Z][1-9][0-9]*$')
+        && l.before == a && l.after == b && l.reason == b.changeReason && l.fromShelf == a.shelf
+        && linkedLog(id, b, l.type)
+        && ((l.type == 'move' && a.status == 'in' && b.status == 'in' && a.shelf != b.shelf
+          && b.diff(a).affectedKeys().hasOnly(['shelf','operationId','changedAt','changedByUid','changeReason']))
+        || (
+          (l.type == 'return' && a.status == 'out' && b.status == 'in' && a.shelf != b.shelf
+            && b.diff(a).affectedKeys().hasOnly(['status','shelf','operationId','changedAt','changedByUid','changeReason']))
+          || (l.type == 'delete' && a.status in ['in','out'] && b.status == 'deleted'
+            && b.deletedFromStatus == a.status && b.isTest == true
+            && b.diff(a).affectedKeys().hasOnly(['status','deletedFromStatus','isTest','operationId','changedAt','changedByUid','changeReason']))
+          || (l.type == 'restore' && a.status == 'deleted' && b.status == a.deletedFromStatus
+            && b.diff(a).affectedKeys().hasOnly(['status','operationId','changedAt','changedByUid','changeReason']))));
     }
     function validLogBase(d) {
       return d.keys().hasAll(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at'])
-        && d.type in ['login', 'add', 'deliver']
+        && d.type in ['login', 'add', 'deliver', 'move', 'return', 'delete', 'restore']
         && d.empNo == actorId() && d.empName == profile(actorId()).name && d.actorUid == request.auth.uid
         && d.shift is string && d.shift.size() <= 100
         && d.shiftDate is string && d.shiftDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && d.sessionId is string && d.sessionId.size() > 0 && d.sessionId.size() <= 200
         && d.at == request.time;
     }
-    function validOperationLog(d) {
+    function validOperationLog(d, logId) {
       let p = getAfter(/databases/$(database)/documents/parcels/$(d.parcelId)).data;
-      return d.parcelId is string && actorInSection(d.section)
+      let old = exists(/databases/$(database)/documents/parcels/$(d.parcelId)) ? get(/databases/$(database)/documents/parcels/$(d.parcelId)).data : {};
+      return d.parcelId is string && p.operationId == logId && actorInSection(d.section)
         && d.receipt == p.receipt && d.year == p.year && d.shelf == p.shelf
         && d.contents == p.contents && d.section == p.section
         && ((d.type == 'add' && p.status == 'in' && p.addedByUid == request.auth.uid && p.addedAt == request.time
@@ -308,17 +354,23 @@ service cloud.firestore {
           || (d.type == 'deliver' && p.status == 'out' && p.deliveredByUid == request.auth.uid && p.deliveredAt == request.time
             && d.deliveredTo == p.deliveredTo && d.deliveryRef == p.deliveryRef
             && d.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at',
-              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'deliveredTo', 'deliveryRef'])));
+              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'deliveredTo', 'deliveryRef']))
+          || (d.type in ['move','return','delete','restore'] && d.before == old && d.after == p
+            && p.changedAt == request.time && p.changedByUid == request.auth.uid
+            && d.reason == p.changeReason && d.fromShelf == old.shelf
+            && d.keys().hasOnly(['type','empNo','empName','section','shift','shiftDate','sessionId','actorUid','at',
+              'parcelId','receipt','year','shelf','contents','fromShelf','reason','before','after'])
+            && (d.type == 'move' || managerForSection(d.section))));
     }
     match /logs/{id} {
       allow read: if globalAdmin() || (activeEmployee() && resource.data.section == actorSection()
-        && (sectionAdmin() || resource.data.type in ['add', 'deliver']));
+        && (sectionAdmin() || resource.data.type in ['add', 'deliver', 'move']));
       allow create: if (owner() || activeEmployee()) && validLogBase(request.resource.data)
         && ((request.resource.data.type == 'login'
             && request.resource.data.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at'])
             && ((globalAdmin() && request.resource.data.section == 'all')
               || (activeEmployee() && request.resource.data.section == actorSection())))
-          || (request.resource.data.type in ['add', 'deliver'] && validOperationLog(request.resource.data)));
+          || (request.resource.data.type in ['add', 'deliver', 'move', 'return', 'delete', 'restore'] && validOperationLog(request.resource.data, id)));
       allow update, delete: if false;
     }
 
