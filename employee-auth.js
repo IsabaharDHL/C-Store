@@ -217,7 +217,7 @@ export function createEmployeeAuth(app, db) {
 
   async function addEmployee(value, input) {
     const id = normalizeId(value);
-    const profile = profileInput(input);
+    const profile = { isAdmin:false, isSuper:false, ...profileInput(input) };
     const administrator = await assertAdmin();
     const assertSameAdministrator = () => {
       if (auth.currentUser?.uid !== administrator.uid) throw authError('employee/access-denied');
@@ -232,7 +232,7 @@ export function createEmployeeAuth(app, db) {
       const section = profile.section || existing.data()?.section || 'dhl';
       tx.set(routeRef, { generation: 1, state: 'pending', enabled: true, alias });
       tx.set(accessRef, { generation: 1, uid: '', active: true, role: 'employee', section });
-      tx.set(profileRef, profile, { merge: true });
+      tx.set(profileRef, { ...profile, section }, { merge: true });
     });
   }
   async function removeEmployee(value) {
