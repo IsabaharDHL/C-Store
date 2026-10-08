@@ -1168,7 +1168,7 @@ async function loadEmployees() {
     allEmployees = s.docs.map(d => ({ no: d.id, ...d.data(), accessActive: accessById.get(d.id)?.active === true }));
     /* أدمن القسم يشوف موظفين قسمه بس، والمسؤول العام ما يطلع عنده */
     employees = allEmployees
-      .filter(e => (isAll() ? true : secOf(e) === curSec && (!e.isSuper || me.isSuper)))
+      .filter(e => (e.accessActive || e.isSuper || e.no === me.no) && (isAll() ? true : secOf(e) === curSec && (!e.isSuper || me.isSuper)))
       .sort((a, b) => (b.isSuper ? 1 : 0) - (a.isSuper ? 1 : 0) || (b.isAdmin ? 1 : 0) - (a.isAdmin ? 1 : 0) || (a.name || '').localeCompare(b.name || '', 'ar'));
     const box = $('#eList'); if (!box) return;
     $('#eCnt').textContent = `(${employees.length})`;
@@ -1176,8 +1176,9 @@ async function loadEmployees() {
       <div class="emp"><div class="who"><div class="nm">${esc(e.name)}${e.isSuper ? '<span class="adm">مسؤول عام</span>' : e.isAdmin ? '<span class="adm">أدمن</span>' : ''}${isAll() && !e.isSuper ? `<span class="sec-tag">${esc(secName(secOf(e)))}</span>` : ''}</div><div class="no">${esc(e.no)}</div></div>
         ${e.isSuper ? '' : `<button class="mini" data-a="adm" data-no="${esc(e.no)}">${e.isAdmin ? 'إلغاء صلاحية الأدمن' : 'منح صلاحية أدمن'}</button>
         ${me.isSuper && sections.length > 1 ? `<button class="mini" data-a="mv" data-no="${esc(e.no)}">نقل</button>` : ''}
-        <button class="mini dng" data-a="reset" data-no="${esc(e.no)}">إعادة تعيين</button>`}</div>`).join('');
-    box.querySelectorAll('.mini').forEach(b => b.onclick = () => b.dataset.a === 'adm' ? toggleAdmin(b.dataset.no) : b.dataset.a === 'mv' ? moveEmployee(b.dataset.no) : resetEmployee(b.dataset.no));
+        <button class="mini dng" data-a="reset" data-no="${esc(e.no)}">إعادة تعيين</button>
+        ${e.no !== me.no && e.accessActive ? `<button class="mini dng" data-a="del" data-no="${esc(e.no)}">حذف الموظف</button>` : ''}`}</div>`).join('');
+    box.querySelectorAll('.mini').forEach(b => b.onclick = () => b.dataset.a === 'adm' ? toggleAdmin(b.dataset.no) : b.dataset.a === 'mv' ? moveEmployee(b.dataset.no) : b.dataset.a === 'del' ? removeEmployee(b.dataset.no) : resetEmployee(b.dataset.no));
   } catch (e) { if (stillHere()) fail(e); }
 }
 
@@ -1254,9 +1255,32 @@ async function toggleAdmin(no) {
   try { await updateDoc(doc(db, 'employees', no), { isAdmin: !e.isAdmin }); if (isCurrent()) loadEmployees(); } catch (err) { if (isCurrent()) fail(err); }
 }
 
+const removingEmployees = new Set();
+async function removeEmployee(no) {
+  if (!me?.isAdmin || removingEmployees.has(no) || resettingEmployees.has(no)) return;
+  const isCurrent = currentView();
+  const e = employees.find(x => x.no === no);
+  if (!e || e.isSuper || !e.accessActive) return;
+  if (no === me.no) return toast('لا يمكنك حذف حسابك', 'err');
+  if (!me.isSuper && secOf(e) !== secOf(me)) return;
+  if (e.isAdmin && !me.isSuper && allEmployees.filter(x => x.accessActive && x.isAdmin && !x.isSuper && secOf(x) === secOf(e)).length <= 1)
+    return toast('يجب أن يبقى أدمن واحد على الأقل في القسم', 'err');
+  if (!confirm(`هل تريد حذف الموظف ${e.name}؟ سيتوقف دخوله للنظام وستبقى حركاته السابقة محفوظة. يمكنك إعادة إضافته لاحقاً.`)) return;
+  removingEmployees.add(no);
+  const buttons = Array.from(document.querySelectorAll('.mini')).filter(b => b.dataset.no === no);
+  buttons.forEach(b => b.disabled = true);
+  try {
+    await authFlow.removeEmployee(no);
+    if (!isCurrent()) return;
+    toast('تم حذف الموظف وإيقاف دخوله للنظام');
+    await loadEmployees();
+  } catch (err) { if (isCurrent()) fail(err); }
+  finally { removingEmployees.delete(no); buttons.forEach(b => { if (b.isConnected) b.disabled = false; }); }
+}
+
 const resettingEmployees = new Set();
 async function resetEmployee(no) {
-  if (!me?.isAdmin || resettingEmployees.has(no)) return;
+  if (!me?.isAdmin || resettingEmployees.has(no) || removingEmployees.has(no)) return;
   const isCurrent = currentView();
   const e = employees.find(x => x.no === no); if (!e || e.isSuper) return;
   if (no === me.no) return toast('لا يمكنك إعادة تعيين حسابك من هنا', 'err');
