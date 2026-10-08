@@ -1,0 +1,79 @@
+function receiptKey(p) {
+  const m = String(p.receipt || '').match(/^([A-Z]+)(\d+)$/);
+  return { y: +p.year || 0, pre: m ? m[1] : String(p.receipt || ''), n: m ? +m[2] : 0 };
+}
+function bySequence(a, b) {
+  const x = receiptKey(a), y = receiptKey(b);
+  return x.y - y.y || x.pre.localeCompare(y.pre) || x.n - y.n;
+}
+function parts(ts) {
+  if (!ts) return ['', '', ''];
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const s = shiftDay(d);
+  return [`${pad2(s.getDate())}/${pad2(s.getMonth() + 1)}/${s.getFullYear()}`, shiftOf(d), `${pad2(d.getHours())}:${pad2(d.getMinutes())}`];
+}
+function plainWhen(ts) { const [d, s, t] = parts(ts); return d ? `${d}، ${s}، ${t}` : ''; }
+async function exportExcel(from, to) {
+  const epoch = sessionEpoch;
+  if (!me) return;
+  if (typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
+  if (!from || !to) return toast('يرجى اختيار التاريخين', 'err');
+  if (from > to) [from, to] = [to, from];
+  const ms = t => (t?.toMillis ? t.toMillis() : 0);
+  const list = parcels
+    .filter(p => { if (!p.addedAt) return false; const d = ymd(shiftDay(p.addedAt.toDate())); return d >= from && d <= to; })
+    .sort((a, b) => bySequence(a, b) || ms(a.addedAt) - ms(b.addedAt));
+  if (!list.length) return toast('لا توجد طرود خلال هذه الفترة', 'err');
+
+  const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
+  const rows = list.map((p, i) => {
+    const out = p.status === 'out';
+    const [d1] = parts(p.addedAt);
+    const [d2, , t2] = parts(p.deliveredAt);
+    return [i + 1, d1, p.receipt || '', +p.year || p.year || '', p.contents, p.addedByName,
+      out ? 'مسلّم' : 'محجوز',
+      out ? p.deliveredTo : '', out ? p.deliveryRef : '', out ? p.deliveredByName : '', out ? `${d2}  ${t2}` : ''];
+  });
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [5, 12, 12, 8, 36, 20, 10, 22, 20, 20, 18].map(w => ({ wch: w }));
+  ws['!views'] = [{ RTL: true }];
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) };
+  ws['!rows'] = [{ hpt: 26 }, ...rows.map(() => ({ hpt: 22 }))];
+
+  const border = { top: { style: 'thin', color: { rgb: 'BFC7D1' } }, bottom: { style: 'thin', color: { rgb: 'BFC7D1' } },
+                   left: { style: 'thin', color: { rgb: 'BFC7D1' } }, right: { style: 'thin', color: { rgb: 'BFC7D1' } } };
+  const base = { alignment: { horizontal: 'center', vertical: 'center', wrapText: true, readingOrder: 2 }, border, font: { name: 'Arial', sz: 11 } };
+  const head = { ...base, font: { name: 'Arial', sz: 12, bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '052447' } } };
+  const red  = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '9C0006' } }, fill: { fgColor: { rgb: 'FFC7CE' } } };
+  const redL = { ...base, fill: { fgColor: { rgb: 'FDE4E7' } } };
+  const green = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '1E6B3A' } }, fill: { fgColor: { rgb: 'D5F2DF' } } };
+  headers.forEach((_, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })].s = head; });
+  rows.forEach((row, r) => {
+    const out = row[6] === 'مسلّم';
+    row.forEach((_, c) => {
+      const ref = XLSX.utils.encode_cell({ r: r + 1, c });
+      if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+      ws[ref].s = c === 6 ? (out ? red : green) : (c > 6 && out ? redL : base);
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  XLSX.utils.book_append_sheet(wb, ws, 'الجرد');
+
+  const f = s => s.split('-').reverse().join('-');
+  const name = `جرد-${secName(curSec).replace(/\s+/g, '-')}-من-${f(from)}-إلى-${f(to)}.xlsx`;
+  const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const file = new File([blob], name, { type: blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
+  } catch (e) { if (e?.name === 'AbortError') return; }
+  if (epoch !== sessionEpoch || !me) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast(`تم تجهيز الجرد: ${rows.length} طرد`);
+}
+

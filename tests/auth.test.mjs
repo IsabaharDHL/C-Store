@@ -1,0 +1,26 @@
+import {test,before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,unlink} from 'node:fs/promises';
+import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
+import {initializeApp,deleteApp} from 'firebase/app';
+import {getAuth,connectAuthEmulator,createUserWithEmailAndPassword} from 'firebase/auth';
+import {getFirestore,connectFirestoreEmulator,doc,setDoc,getDocFromServer,serverTimestamp,terminate} from 'firebase/firestore';
+let env, app, auth, db, flow, app2, auth2, db2, flow2;
+const generated=new URL('./fixtures/auth-under-test.mjs',import.meta.url);
+before(async()=>{
+ const code=(await readFile('employee-auth.js','utf8')).replace('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js','firebase/auth').replace('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js','firebase/firestore');
+ await writeFile(generated,code);
+ const {createEmployeeAuth}=await import(generated);
+ env=await initializeTestEnvironment({projectId:'demo-cstore',firestore:{rules:await readFile('firestore.rules','utf8')}});await env.clearFirestore();
+ const config={projectId:'demo-cstore',apiKey:'fake-key',authDomain:'localhost'};
+ app=initializeApp(config,'owner');auth=getAuth(app);connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});db=getFirestore(app);connectFirestoreEmulator(db,'127.0.0.1',8080);flow=createEmployeeAuth(app,db);
+ app2=initializeApp(config,'employee');auth2=getAuth(app2);connectAuthEmulator(auth2,'http://127.0.0.1:9099',{disableWarnings:true});db2=getFirestore(app2);connectFirestoreEmulator(db2,'127.0.0.1',8080);flow2=createEmployeeAuth(app2,db2);
+ const alias='f'.repeat(32)+'@employees.invalid';const {user}=await createUserWithEmailAndPassword(auth,alias,'test-password-only');
+ await env.withSecurityRulesDisabled(async c=>{const store=c.firestore();await setDoc(doc(store,'administrators',user.uid),{active:true,employeeId:'900'});await setDoc(doc(store,'employees','900'),{name:'owner',section:'dhl',isSuper:true,isAdmin:true});await setDoc(doc(store,'loginRoutes','900'),{generation:1,state:'claimed',enabled:true,alias});});
+});
+after(async()=>{await terminate(db);await terminate(db2);await deleteApp(app);await deleteApp(app2);await env?.cleanup();await unlink(generated).catch(()=>{});});
+test('real auth helper creates employee in server with safe default roles',async()=>{await flow.addEmployee('111',{name:'Ali',section:'dhl',createdBy:'900',createdAt:serverTimestamp()});const profile=(await getDocFromServer(doc(db,'employees','111'))).data();assert.equal(profile.isAdmin,false);assert.equal(profile.isSuper,false);assert.equal(profile.section,'dhl');});
+test('first enrollment, logout, fresh login and restore retain employee',async()=>{let i=await flow2.enroll('111','employee-password');assert.equal(i.employeeId,'111');assert.equal(i.profile.name,'Ali');await flow2.logout();i=await flow2.login('111','employee-password');assert.equal(i.profile.section,'dhl');assert.equal((await flow2.restore()).employeeId,'111');});
+test('duplicate number never overwrites existing employee',async()=>{await assert.rejects(flow.addEmployee('111',{name:'Overwrite',section:'dhl',createdBy:'900',createdAt:serverTimestamp()}));assert.equal((await getDocFromServer(doc(db,'employees','111'))).data().name,'Ali');});
+test('revocation denies old credentials; readd requires new enrollment and preserves profile',async()=>{await flow.removeEmployee('111');await flow2.logout();await assert.rejects(flow2.login('111','employee-password'));await flow.readdEmployee('111');const i=await flow2.enroll('111','new-employee-password');assert.equal(i.generation,2);assert.equal(i.profile.name,'Ali');});
+test('credentials cannot be saved in employee profile',async()=>{await assert.rejects(flow.addEmployee('222',{name:'Bad',password:'unsafe',section:'dhl'}));const s=await getDocFromServer(doc(db,'employees','222'));assert.equal(s.exists(),false);});
