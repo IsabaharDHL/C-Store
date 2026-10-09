@@ -341,6 +341,13 @@ function parseReceipt(raw) {
   if (!m) return null;
   return { raw: s, year: m[1], port: m[2], receipt: m[3], id: `${m[1]}_${m[3]}` };
 }
+function manualReceipt(year, receipt, ports) {
+  const y = toEn(year).trim(), r = toEn(receipt).trim().toUpperCase();
+  if (!/^20\d{2}$/.test(y) || !/^[A-Z]+\d+$/.test(r)) throw new Error('أدخل سنة من 4 أرقام ورقم وصل مثل P17');
+  if (ports.length !== 1 || !/^\d{4}$/.test(ports[0])) throw new Error('يجب أن يحدد الأدمن كود منفذ واحد للقسم للإدخال اليدوي');
+  return `0${y}${ports[0]}${r}`;
+}
+const parcelCount = p => Number.isInteger(p.parcelCount) && p.parcelCount > 0 ? p.parcelCount : 1;
 /* باركود الرف: SH-A1 */
 function parseShelf(raw) {
   const s = toEn(raw).toUpperCase().replace(/\s/g, '');
@@ -531,7 +538,7 @@ function parcelCard(p) {
   return `<div class="pc ${isIn ? 'in' : 'out'}">
     <div class="pc-h"><div class="rno">${esc(p.receipt)} <span class="yr">/ ${esc(p.year)}</span>${secTag(p)}</div>
       <span class="badge ${isIn ? 'b-in' : 'b-out'}">${p.status === 'deleted' ? 'محذوف تجريبي — قابل للاسترجاع' : isIn ? 'في المستودع' : 'مسلّم'}</span></div>
-    <div class="row"><span>المحتويات</span><b>${esc(p.contents)}</b></div>
+    <div class="row"><span>المحتويات</span><b>${esc(p.contents)}</b></div><div class="row"><span>عدد الطرود</span><b>${parcelCount(p)}</b></div>
     ${isIn
       ? `<div class="shelf">الرف<b>${esc(p.shelf)}</b></div>
          <div class="meta">أدخله: ${esc(p.addedByName)}، ${fmt(p.addedAt)}</div>`
@@ -812,13 +819,13 @@ function openFlow(title, kind) {
   return {
     close, isCurrent,
     step(i, n) { if (!isCurrent()) return; ov.querySelector('.steps').textContent = `${i} من ${n}`; },
-    scan(prompt, validate) {
+    scan(prompt, validate, receiptMode = false) {
       return new Promise(async resolve => {
         if (!isCurrent()) return resolve(null);
         pending = resolve;
         body.innerHTML = (rcTag ? `<div class="rc-tag"><span>الوصل</span><b>${esc(rcTag)}</b></div>` : '') +
           `<p class="prompt">${esc(prompt)}</p><div id="reader" class="reader"></div><button type="button" class="flash-btn" id="flashBtn">🔦 تشغيل الفلاش</button>
-          <button type="button" class="man-btn" id="manBtn">⌨️ إدخال يدوي</button><div class="man-box" id="manBox" hidden><input id="manInp" class="inp" autocomplete="off" autocapitalize="characters" placeholder="الرقم المكتوب تحت الباركود"><button type="button" id="manGo">تأكيد</button></div><div class="scanmsg"></div>
+          <button type="button" class="man-btn" id="manBtn">⌨️ إدخال يدوي</button><div class="man-box" id="manBox" hidden style="flex-wrap:wrap">${receiptMode ? `<div class="grid2" style="width:100%"><div><label for="manYear">سنة الوصل</label><input id="manYear" class="inp" inputmode="numeric" maxlength="4" placeholder="2025"></div><div><label for="manInp">رقم الوصل</label>` : ''}<input id="manInp" class="inp" autocomplete="off" autocapitalize="characters" placeholder="${receiptMode ? 'P17' : 'رقم الرف مثل A1'}">${receiptMode ? `</div></div><p class="mut sm" style="width:100%;margin:0">كود المنفذ: <b dir="ltr">${esc(secPorts(curSec).join('، '))}</b></p>` : ''}<button type="button" id="manGo">تأكيد</button></div><div class="scanmsg"></div>
           <p class="mut sm center-t">ضع الباركود بالعرض، ميل الغلاف شوي لتخفيف الانعكاس وثبّت الجوال. جرّب إطفاء الفلاش إذا زاد اللمعان</p>`;
         let last = '', lastAt = 0, busy = false;
         try {
@@ -881,11 +888,14 @@ function openFlow(title, kind) {
 
           /* الإدخال اليدوي */
           const manBtn = body.querySelector('#manBtn'), manBox = body.querySelector('#manBox'), manInp = body.querySelector('#manInp');
-          manBtn.onclick = () => { manBox.hidden = false; manBtn.hidden = true; setTimeout(() => manInp.focus(), 100); };
+          manBtn.onclick = () => { manBox.hidden = false; manBtn.hidden = true; setTimeout(() => (body.querySelector('#manYear') || manInp).focus(), 100); };
           const manSubmit = async () => {
             let v = toEn(manInp.value).trim().toUpperCase();
             if (!v || busy) return;
-            if (/^[A-Z]\d+$/.test(v)) v = 'SH-' + v; /* رقم رف مثل A1 */
+            if (receiptMode) {
+              try { v = manualReceipt(body.querySelector('#manYear').value, v, secPorts(curSec)); }
+              catch (e) { toast(e.message, 'err'); return; }
+            } else if (/^[A-Z]\d+$/.test(v)) v = 'SH-' + v; /* رقم رف مثل A1 */
             await onText(v, true);
           };
           body.querySelector('#manGo').onclick = manSubmit;
@@ -961,11 +971,11 @@ function openFlow(title, kind) {
         pending = resolve;
         body.innerHTML = (ctx ? `<div class="ctx">${ctx}</div>` : '') + fields.map(f =>
           `<label for="f_${f.key}">${esc(f.label)} <span class="req">*</span></label>` +
-          (f.multi ? `<textarea id="f_${f.key}" class="inp" rows="3"></textarea>` : `<input id="f_${f.key}" class="inp" autocomplete="off">`)
+          (f.multi ? `<textarea id="f_${f.key}" class="inp" rows="3"></textarea>` : `<input id="f_${f.key}" class="inp" autocomplete="off" ${f.number ? 'inputmode="numeric" value="1"' : ''}>`)
         ).join('') + `<button id="fNext" class="btn gold" disabled>${esc(fields.submit || 'التالي')}</button>`;
         const els = fields.map(f => body.querySelector('#f_' + f.key));
         const btn = body.querySelector('#fNext');
-        const chk = () => { btn.disabled = !els.every(e => e.value.trim()); };
+        const chk = () => { btn.disabled = !els.every((e, i) => fields[i].number ? /^[0-9]+$/.test(toEn(e.value).trim()) && +toEn(e.value) >= 1 && +toEn(e.value) <= 10000 : e.value.trim()); };
         els.forEach(e => e.addEventListener('input', chk));
         setTimeout(() => els[0]?.focus(), 150);
         btn.onclick = () => {
@@ -1006,11 +1016,11 @@ async function flowAdd() {
         : { alert: 'مسلّم بالفعل', err: `الوصل ${p.receipt} / ${p.year} سُلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
     }
     return { ok: p };
-  });
+  }, true);
   if (!r || !f.isCurrent()) return;
 
   f.step(2, 3);
-  const fields = [{ key: 'contents', label: 'المحتويات', multi: true }];
+  const fields = [{ key: 'contents', label: 'المحتويات', multi: true }, { key: 'parcelCount', label: 'عدد الطرود', number: true }];
   const fm = await f.form(fields, `وصل ${esc(r.receipt)} / ${esc(r.year)}`);
   if (!fm || !f.isCurrent()) return;
 
@@ -1028,13 +1038,13 @@ async function flowAdd() {
     const b = writeBatch(db), operation = uid();
     b.set(doc(db, 'parcels', r.docId), {
       section: curSec, receipt: r.receipt, year: r.year, port: r.port, raw: r.raw,
-      contents: fm.contents, shelf, status: 'in', operationId: operation,
+      contents: fm.contents, parcelCount: +toEn(fm.parcelCount), shelf, status: 'in', operationId: operation,
       addedBy: me.no, addedByUid: me.uid, addedByName: me.name, addedShift: lf.shift, addedAt: serverTimestamp()
     });
-    b.set(doc(db, 'logs', operation), { type: 'add', parcelId: r.docId, receipt: r.receipt, year: r.year, shelf, contents: fm.contents, ...lf });
+    b.set(doc(db, 'logs', operation), { type: 'add', parcelId: r.docId, receipt: r.receipt, year: r.year, shelf, contents: fm.contents, parcelCount: +toEn(fm.parcelCount), ...lf });
     await b.commit();
     if (!f.isCurrent()) return;
-    f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['المحتويات', fm.contents], ['الرف', shelf]]);
+    f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['المحتويات', fm.contents], ['عدد الطرود', +toEn(fm.parcelCount)], ['الرف', shelf]]);
   } catch (e) {
     console.error(e);
     f.result(false, 'لم يتم حفظ الطرد', [['السبب', errMsg(e)]]);
@@ -1058,7 +1068,7 @@ async function flowDeliver() {
     if (d.status !== 'in') return { alert: 'مسلّم بالفعل', err: `الوصل ${x.receipt} / ${x.year} سُلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
     p = { id: pid(x), ...d };
     return { ok: x };
-  });
+  }, true);
   if (!r || !f.isCurrent()) return;
 
   f.step(2, 3);
@@ -1088,7 +1098,7 @@ async function flowDeliver() {
       status: 'out', operationId: operation, deliveredTo: fm.to, deliveryRef: fm.ref,
       deliveredBy: me.no, deliveredByUid: me.uid, deliveredByName: me.name, deliveredShift: lf.shift, deliveredAt: serverTimestamp()
     });
-    b.set(doc(db, 'logs', operation), { type: 'deliver', parcelId: p.id, receipt: p.receipt, year: p.year, shelf: p.shelf, contents: p.contents, deliveredTo: fm.to, deliveryRef: fm.ref, ...lf });
+    b.set(doc(db, 'logs', operation), { type: 'deliver', parcelId: p.id, receipt: p.receipt, year: p.year, shelf: p.shelf, contents: p.contents, parcelCount: parcelCount(p), deliveredTo: fm.to, deliveryRef: fm.ref, ...lf });
     });
     if (!f.isCurrent()) return;
     f.result(true, 'تم تسليم الطرد وإخراجه من المستودع', [['الوصل', `${p.receipt} / ${p.year}`], ['المستلم', fm.to], ['الكتاب / الإشعار', fm.ref]]);
@@ -1146,7 +1156,7 @@ function logCard(l) {
   return `<div class="lg"><div class="lg-h"><span class="tag ${add ? 't-add' : 't-del'}">${esc(title)}</span></div><div class="when">${fmt(l.at)}</div>
     <div class="rno">${esc(l.receipt)} <span class="yr">/ ${esc(l.year)}</span>${secTag(l)}</div>
     <div class="row"><span>الرف</span><b>${esc(l.shelf)}</b></div>
-    <div class="row"><span>المحتويات</span><b>${esc(l.contents)}</b></div>
+    <div class="row"><span>المحتويات</span><b>${esc(l.contents)}</b></div><div class="row"><span>عدد الطرود</span><b>${parcelCount(l)}</b></div>
     ${l.reason ? `<div class="row"><span>السبب</span><b>${esc(l.reason)}</b></div>` : ''}
     ${l.fromShelf ? `<div class="row"><span>الرف السابق</span><b>${esc(l.fromShelf)}</b></div>` : ''}
     ${l.type !== 'deliver' ? '' : `<div class="row"><span>المستلم</span><b>${esc(l.deliveredTo)}</b></div><div class="row"><span>الكتاب / الإشعار</span><b>${esc(l.deliveryRef)}</b></div>`}
