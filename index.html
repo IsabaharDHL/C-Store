@@ -74,7 +74,7 @@ select.inp{appearance:none;-webkit-appearance:none}
 .big-btn svg{width:42px;height:42px}
 .big-btn.add{background:var(--green)}
 .big-btn.del{background:var(--orange)}
-.big-btn:active{transform:scale(.98)}
+
 .wide-btn{width:100%;margin-top:12px;border:1.5px solid var(--line);background:var(--navy2);color:var(--txt);border-radius:16px;padding:17px;font-size:1.1rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
 .wide-btn svg{width:22px;height:22px}
 .wide-btn.adm{border-color:var(--gold);color:var(--gold);background:transparent}
@@ -193,7 +193,7 @@ footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);fon
 #bLog{animation-delay:.18s}#bAdm{animation-delay:.24s}.stat{animation-delay:.3s}
 .big-btn,.wide-btn,.btn,.chipb,.tab,.mini,.ghost{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s}
 .big-btn{box-shadow:0 8px 22px rgba(0,0,0,.28)}
-.big-btn:active,.wide-btn:active,.btn:active,.chipb:active,.tab:active,.mini:active,.ghost:active{transform:scale(.96)}
+
 .big-btn:active{box-shadow:0 3px 10px rgba(0,0,0,.3)}
 .pc,.lg,.emp,.res-h{animation:fadeUp .35s cubic-bezier(.2,.8,.2,1) both}
 .pc:nth-child(2),.lg:nth-child(2){animation-delay:.04s}.pc:nth-child(3),.lg:nth-child(3){animation-delay:.08s}
@@ -216,7 +216,7 @@ footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);fon
   .res-box .ico path{stroke-dashoffset:0}}
 .lists{margin-top:12px}
 .list-btn{border:1.5px solid var(--line);background:var(--navy2);color:var(--txt);border-radius:16px;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:700;font-size:1.05rem;animation:fadeUp .45s .22s cubic-bezier(.2,.8,.2,1) both;transition:transform .15s ease}
-.list-btn:active{transform:scale(.96)}
+
 .list-btn.in{border-top:4px solid var(--green)}
 .list-btn.out{border-top:4px solid var(--orange)}
 .lb-n{font-size:1.6rem;line-height:1.1}
@@ -229,6 +229,10 @@ footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);fon
 @keyframes redFlash{0%,100%{background:rgba(205,30,30,.94)}50%{background:rgba(255,70,70,1)}}
 .flow.alarm .fh{border-bottom-color:var(--red)!important}
 .flow.alarm{box-shadow:inset 0 0 0 6px var(--red)}
+/* Independent scale keeps press feedback visible after entrance animations. */
+button{transition:scale .16s cubic-bezier(.2,.8,.2,1),filter .16s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s}
+button:enabled:active{scale:.96;filter:brightness(1.12)}
+@media(prefers-reduced-motion:reduce){button:enabled:active{scale:1;filter:brightness(1.12)}}
 </style>
 </head>
 <body>
@@ -253,6 +257,14 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 const authFlow = createEmployeeAuth(fbApp, db);
 
+// One delegated listener also covers buttons created by later screens and dialogs.
+document.addEventListener('click', e => {
+  const button = e.target.closest?.('button');
+  if (!button || button.disabled || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  button.getAnimations().filter(a => a.id === 'button-press').forEach(a => a.cancel());
+  button.animate([{scale:'.96',filter:'brightness(1.12)'},{scale:'1.025',filter:'brightness(1.04)'},{scale:'1',filter:'brightness(1)'}],
+    {id:'button-press',duration:240,easing:'cubic-bezier(.2,.8,.2,1)'});
+}, true);
 /* ---------- helpers ---------- */
 const LS = 'dhl_store_session';
 const $ = s => document.querySelector(s);
