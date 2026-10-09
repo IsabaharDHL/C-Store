@@ -162,6 +162,7 @@ details summary{font-weight:700;cursor:pointer}
 .man-btn{display:block;width:100%;margin-top:7px;border:1.5px solid var(--line);background:transparent;color:var(--txt);border-radius:12px;padding:11px;font:inherit;font-weight:700}
 .man-box{display:flex;gap:8px;margin-top:8px;animation:fadeUp .25s ease both}
 .man-box .inp{flex:1;min-width:0;direction:ltr;text-align:center;text-transform:uppercase;padding:12px}
+.man-box:has(#manYear) button{flex-basis:100%;min-height:44px;padding:12px 18px}
 .man-box button{border:0;border-radius:12px;padding:0 18px;background:var(--gold);color:#1b1300;font:inherit;font-weight:700}
 .req{color:var(--red)}
 .res-box{text-align:center;padding:22px 6px 6px}
@@ -347,7 +348,7 @@ function manualReceipt(year, receipt, ports) {
   if (ports.length !== 1 || !/^\d{4}$/.test(ports[0])) throw new Error('يجب أن يحدد الأدمن كود منفذ واحد للقسم للإدخال اليدوي');
   return `0${y}${ports[0]}${r}`;
 }
-const parcelCount = p => Number.isInteger(p.parcelCount) && p.parcelCount > 0 ? p.parcelCount : 1;
+const parcelCount = p => { const n = p.parcelCount ?? p.after?.parcelCount ?? p.before?.parcelCount; return Number.isInteger(n) && n > 0 ? n : 1; };
 /* باركود الرف: SH-A1 */
 function parseShelf(raw) {
   const s = toEn(raw).toUpperCase().replace(/\s/g, '');
