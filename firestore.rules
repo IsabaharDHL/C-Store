@@ -277,13 +277,14 @@ service cloud.firestore {
     function validParcelCreate(d) {
       return d.keys().hasAll(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
           'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt', 'operationId'])
-        && d.keys().hasOnly(['section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
+        && d.keys().hasOnly(['parcelCount', 'section', 'receipt', 'year', 'port', 'raw', 'contents', 'shelf', 'status',
           'addedBy', 'addedByUid', 'addedByName', 'addedShift', 'addedAt', 'operationId'])
         && actorInSection(d.section) && d.status == 'in'
         && d.receipt is string && d.receipt.size() > 0 && d.receipt.size() <= 100
         && d.year is string && d.year.matches('^20[0-9]{2}$')
         && d.port is string && d.port.matches('^[0-9]{4}$') && permittedPort(d.section, d.port)
         && d.raw is string && d.raw.size() <= 200
+        && d.get('parcelCount', 1) is int && d.get('parcelCount', 1) >= 1 && d.get('parcelCount', 1) <= 10000
         && d.contents is string && d.contents.size() > 0 && d.contents.size() <= 20000
         && d.shelf is string && d.shelf.matches('^[A-Z][1-9][0-9]*$')
         && d.addedBy == actorId() && d.addedByUid == request.auth.uid
@@ -348,13 +349,14 @@ service cloud.firestore {
       return d.parcelId is string && p.operationId == logId && actorInSection(d.section)
         && d.receipt == p.receipt && d.year == p.year && d.shelf == p.shelf
         && d.contents == p.contents && d.section == p.section
+        && (d.type in ['move','return','delete','restore'] || d.get('parcelCount', 1) == p.get('parcelCount', 1))
         && ((d.type == 'add' && p.status == 'in' && p.addedByUid == request.auth.uid && p.addedAt == request.time
             && d.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at',
-              'parcelId', 'receipt', 'year', 'shelf', 'contents']))
+              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'parcelCount']))
           || (d.type == 'deliver' && p.status == 'out' && p.deliveredByUid == request.auth.uid && p.deliveredAt == request.time
             && d.deliveredTo == p.deliveredTo && d.deliveryRef == p.deliveryRef
             && d.keys().hasOnly(['type', 'empNo', 'empName', 'section', 'shift', 'shiftDate', 'sessionId', 'actorUid', 'at',
-              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'deliveredTo', 'deliveryRef']))
+              'parcelId', 'receipt', 'year', 'shelf', 'contents', 'parcelCount', 'deliveredTo', 'deliveryRef']))
           || (d.type in ['move','return','delete','restore'] && d.before == old && d.after == p
             && p.changedAt == request.time && p.changedByUid == request.auth.uid
             && d.reason == p.changeReason && d.fromShelf == old.shelf
