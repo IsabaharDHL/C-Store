@@ -705,7 +705,7 @@ async function exportExcel(from, to, kind = 'all') {
     const out = p.status === 'out';
     const [d1] = parts(p.addedAt);
     if (p.status === 'declaration') {
-      return [i + 1, d1, p.receipt, +p.year, `${p.receipt} ${DECLARATION_LABEL}`, '', '', '', '', '', ''];
+      return ['', d1, p.receipt, +p.year, `${p.receipt} ${DECLARATION_LABEL}`, '', '', '', '', '', ''];
     }
     const [d2, , t2] = parts(p.deliveredAt);
     return [i + 1, d1, p.receipt || '', +p.year || p.year || '', p.contents, p.addedByName,
@@ -728,11 +728,15 @@ async function exportExcel(from, to, kind = 'all') {
   const yellow = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '9C0006' } }, fill: { fgColor: { rgb: 'FFF0A6' } } };
   headers.forEach((_, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })].s = head; });
   rows.forEach((row, r) => {
+    const declaration = list[r].status === 'declaration';
+    if (declaration) {
+      (ws['!merges'] ??= []).push({ s: { r: r + 1, c: 4 }, e: { r: r + 1, c: headers.length - 1 } });
+    }
     const out = row[6] === 'مسلّم';
     row.forEach((_, c) => {
       const ref = XLSX.utils.encode_cell({ r: r + 1, c });
       if (!ws[ref]) ws[ref] = { t: 's', v: '' };
-      ws[ref].s = list[r].status === 'declaration' ? yellow
+      ws[ref].s = declaration ? yellow
         : c === 6 ? (out ? red : green) : (c > 6 && out ? redL : base);
     });
   });
