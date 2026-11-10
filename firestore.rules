@@ -291,13 +291,24 @@ service cloud.firestore {
         && d.addedByName == profile(actorId()).name
         && d.addedShift is string && d.addedShift.size() <= 100 && d.addedAt == request.time;
     }
+    function validDeclarationCreate(id, d) {
+      return d.keys().hasOnly(['section', 'receipt', 'year', 'status', 'contents', 'addedBy', 'addedByUid', 'addedAt'])
+        && actorInSection(d.section) && d.status == 'declaration'
+        && d.contents == 'بيـــــــــــان مبسط'
+        && d.receipt is string && d.receipt.size() <= 100 && d.receipt.matches('^[A-Z]+[0-9]+$')
+        && d.year is string && d.year.matches('^20[0-9]{2}$')
+        && id == 'declaration_' + d.section + '_' + d.year + '_' + d.receipt
+        && d.addedBy == actorId() && d.addedByUid == request.auth.uid && d.addedAt == request.time;
+    }
     match /parcels/{id} {
       // The scanner checks a new receipt before creation. Missing documents have
       // no section; permit that exact lookup without widening collection queries.
       allow get: if globalAdmin() || (activeEmployee()
         && (!exists(/databases/$(database)/documents/parcels/$(id)) || resource.data.section == actorSection()));
       allow list: if globalAdmin() || (activeEmployee() && resource.data.section == actorSection());
-      allow create: if validParcelCreate(request.resource.data) && linkedLog(id, request.resource.data, 'add');
+      allow create: if request.resource.data.status == 'declaration'
+        ? validDeclarationCreate(id, request.resource.data)
+        : (validParcelCreate(request.resource.data) && linkedLog(id, request.resource.data, 'add'));
       allow update: if (actorInSection(resource.data.section)
         && resource.data.status == 'in' && request.resource.data.status == 'out'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveredTo', 'deliveryRef',
