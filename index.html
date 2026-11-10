@@ -606,7 +606,7 @@ function renderHome() {
       <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
       <button id="bDel" class="big-btn del">${ICON.del}تسليم طرد</button>
     </div>`}
-    ${isAll() ? '' : '<button id="bDeclaration" class="wide-btn declaration">بيان مبسطة</button>'}
+    ${isAll() ? '' : '<button id="bDeclaration" class="wide-btn declaration">بيان مبسط</button>'}
     <button id="bLog" class="wide-btn">${ICON.log}${me.isAdmin ? 'السجل' : 'سجل الطرود'}</button>
     <div class="grid2 lists">
       <button id="bIn" class="list-btn in"><span class="lb-t">المحجوزات</span><span class="lb-n" id="cntIn">${parcels.length ? parcels.filter(p => p.status === 'in').length : '…'}</span></button>
@@ -1035,7 +1035,7 @@ function openFlow(title, kind) {
 async function flowDeclaration() {
   if (!me || isAll()) return;
   const section = curSec;
-  const f = openFlow('بيان مبسطة', 'declaration');
+  const f = openFlow('بيان مبسط', 'declaration');
   const fields = [{ key: 'receipt', label: 'رقم وصل الأمانة' }, { key: 'year', label: 'السنة' }];
   fields.submit = 'حفظ';
   const form = await f.form(fields);
