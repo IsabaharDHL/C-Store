@@ -74,6 +74,8 @@ select.inp{appearance:none;-webkit-appearance:none}
 .big-btn svg{width:42px;height:42px}
 .big-btn.add{background:var(--green)}
 .big-btn.del{background:var(--orange)}
+.wide-btn.declaration,.pc.declaration{background:#fff0a6;color:#9c0006}
+.pc.declaration .rno{direction:rtl}
 
 .wide-btn{width:100%;margin-top:12px;border:1.5px solid var(--line);background:var(--navy2);color:var(--txt);border-radius:16px;padding:17px;font-size:1.1rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
 .wide-btn svg{width:22px;height:22px}
@@ -545,7 +547,15 @@ function startParcels() {
   }, fail);
 }
 
+const DECLARATION_LABEL = 'بيـــــــــــان مبسط';
+
 function parcelCard(p) {
+  if (p.status === 'declaration') {
+    return `<div class="pc declaration"><div class="pc-h">
+      <div class="rno"><bdi dir="ltr">${esc(p.receipt)}</bdi> ${DECLARATION_LABEL}</div>
+      <span>${esc(p.year)}${secTag(p)}</span>
+    </div></div>`;
+  }
   const isIn = p.status === 'in' || (p.status === 'deleted' && p.deletedFromStatus === 'in');
   const actions = p.status === 'deleted' ? ['restore'] : isIn ? ['move', ...(me.isAdmin ? ['delete'] : [])] : (me.isAdmin ? ['return', 'delete'] : []);
   return `<div class="pc ${isIn ? 'in' : 'out'}">
@@ -573,7 +583,7 @@ function runSearch(raw) {
   const q = normAr(raw);
   if (!q) { res.innerHTML = ''; return; }
   const list = parcels.filter(p => p.status !== 'deleted').filter(p => normAr(p.receipt).includes(q) || normAr(p.contents).includes(q))
-    .sort((a, b) => (a.status === b.status ? (b.year || '').localeCompare(a.year || '') : a.status === 'in' ? -1 : 1));
+    .sort((a, b) => Number(b.status === 'in') - Number(a.status === 'in') || (b.year || '').localeCompare(a.year || ''));
   res.innerHTML = list.length
     ? `<div class="res-h">${list.length} نتيجة</div>` + list.slice(0, 60).map(parcelCard).join('')
     : `<div class="res-h">لا يوجد طرد بهذا الرقم أو المحتوى</div>`;
@@ -596,18 +606,21 @@ function renderHome() {
       <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
       <button id="bDel" class="big-btn del">${ICON.del}تسليم طرد</button>
     </div>`}
+    ${isAll() ? '' : '<button id="bDeclaration" class="wide-btn declaration">بيان مبسطة</button>'}
     <button id="bLog" class="wide-btn">${ICON.log}${me.isAdmin ? 'السجل' : 'سجل الطرود'}</button>
     <div class="grid2 lists">
       <button id="bIn" class="list-btn in"><span class="lb-t">المحجوزات</span><span class="lb-n" id="cntIn">${parcels.length ? parcels.filter(p => p.status === 'in').length : '…'}</span></button>
       <button id="bOut" class="list-btn out"><span class="lb-t">المسلّمة</span><span class="lb-n" id="cntOut">${parcels.length ? parcels.filter(p => p.status === 'out').length : '…'}</span></button>
     </div>
-    ${me.isAdmin ? `<button id="bExport" class="wide-btn">تصدير Excel</button><button id="bDeleted" class="wide-btn">الطرود المحذوفة · استرجاع</button><button id="bAdm" class="wide-btn adm">${ICON.adm}الإدارة</button>` : ''}
+    <button id="bExport" class="wide-btn">تصدير Excel</button>
+    ${me.isAdmin ? `<button id="bDeleted" class="wide-btn">الطرود المحذوفة · استرجاع</button><button id="bAdm" class="wide-btn adm">${ICON.adm}الإدارة</button>` : ''}
   </div>`);
   on('#out', 'click', logout);
   on('#secSw', 'change', e => { setSection(e.target.value); renderHome(); });
   on('#q', 'input', e => runSearch(e.target.value));
   on('#bAdd', 'click', flowAdd);
   on('#bDel', 'click', flowDeliver);
+  on('#bDeclaration', 'click', flowDeclaration);
   on('#bLog', 'click', renderLog);
   on('#bAdm', 'click', renderAdmin);
   on('#bExport', 'click', renderExport);
@@ -644,10 +657,10 @@ function renderList(kind) {
 
 /* ---------- تصدير الجرد Excel ---------- */
 function renderExport() {
-  if (!me?.isAdmin) return;
+  if (!me) return;
   view(`<div class="wrap"><header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">تصدير Excel · ${esc(secName(curSec))}</div></header>
     <div class="grid2 export-filters"><div><label for="xFrom">من تاريخ</label><input id="xFrom" type="date" class="inp"></div><div><label for="xTo">إلى تاريخ</label><input id="xTo" type="date" class="inp"></div></div>
-    <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات بنفس تنسيق الجرد السابق.</p>
+    <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات والبيانات المبسطة حسب يوم الوردية عند التسجيل.</p>
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}</div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
@@ -670,7 +683,7 @@ function parts(ts) {
 function plainWhen(ts) { const [d, s, t] = parts(ts); return d ? `${d}، ${s}، ${t}` : ''; }
 async function exportExcel(from, to, kind = 'all') {
   const epoch = sessionEpoch;
-  if (!me?.isAdmin) return;
+  if (!me) return;
   if (!['in','out','all'].includes(kind)) return;
   const isCurrent = currentView(), section = curSec;
   if (typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
@@ -682,15 +695,18 @@ async function exportExcel(from, to, kind = 'all') {
   catch (e) { if (isCurrent()) fail(e); return; }
   if (!isCurrent()) return;
   const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
-    .filter(p => ['in','out'].includes(p.status) && (kind === 'all' || p.status === kind))
+    .filter(p => ['in','out','declaration'].includes(p.status) && (kind === 'all' || p.status === kind))
     .filter(p => { if (!p.addedAt) return false; const d = ymd(shiftDay(p.addedAt.toDate())); return d >= from && d <= to; })
     .sort((a, b) => bySequence(a, b) || ms(a.addedAt) - ms(b.addedAt));
-  if (!list.length) return toast('لا توجد طرود خلال هذه الفترة', 'err');
+  if (!list.length) return toast('لا توجد سجلات خلال هذه الفترة', 'err');
 
   const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
   const rows = list.map((p, i) => {
     const out = p.status === 'out';
     const [d1] = parts(p.addedAt);
+    if (p.status === 'declaration') {
+      return [i + 1, d1, p.receipt, +p.year, `${p.receipt} ${DECLARATION_LABEL}`, '', '', '', '', '', ''];
+    }
     const [d2, , t2] = parts(p.deliveredAt);
     return [i + 1, d1, p.receipt || '', +p.year || p.year || '', p.contents, p.addedByName,
       out ? 'مسلّم' : 'محجوز',
@@ -709,13 +725,15 @@ async function exportExcel(from, to, kind = 'all') {
   const red  = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '9C0006' } }, fill: { fgColor: { rgb: 'FFC7CE' } } };
   const redL = { ...base, fill: { fgColor: { rgb: 'FDE4E7' } } };
   const green = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '1E6B3A' } }, fill: { fgColor: { rgb: 'D5F2DF' } } };
+  const yellow = { ...base, font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '9C0006' } }, fill: { fgColor: { rgb: 'FFF0A6' } } };
   headers.forEach((_, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })].s = head; });
   rows.forEach((row, r) => {
     const out = row[6] === 'مسلّم';
     row.forEach((_, c) => {
       const ref = XLSX.utils.encode_cell({ r: r + 1, c });
       if (!ws[ref]) ws[ref] = { t: 's', v: '' };
-      ws[ref].s = c === 6 ? (out ? red : green) : (c > 6 && out ? redL : base);
+      ws[ref].s = list[r].status === 'declaration' ? yellow
+        : c === 6 ? (out ? red : green) : (c > 6 && out ? redL : base);
     });
   });
 
@@ -1008,6 +1026,38 @@ function openFlow(title, kind) {
       body.querySelector('#fDone').onclick = () => close();
     }
   };
+}
+
+async function flowDeclaration() {
+  if (!me || isAll()) return;
+  const section = curSec;
+  const f = openFlow('بيان مبسطة', 'declaration');
+  const fields = [{ key: 'receipt', label: 'رقم وصل الأمانة' }, { key: 'year', label: 'السنة' }];
+  fields.submit = 'حفظ';
+  const form = await f.form(fields);
+  if (!form || !f.isCurrent()) return;
+  const receipt = toEn(form.receipt).toUpperCase();
+  const year = toEn(form.year);
+  if (!/^[A-Z]+[0-9]+$/.test(receipt) || receipt.length > 100 || !/^20[0-9]{2}$/.test(year)) {
+    return f.result(false, 'أدخل رقم وصل مثل P255 وسنة من 4 أرقام');
+  }
+
+  const ref = doc(db, 'parcels', `declaration_${section}_${year}_${receipt}`);
+  const record = { section, receipt, year, status: 'declaration', contents: DECLARATION_LABEL,
+    addedBy: me.no, addedByUid: me.uid, addedAt: serverTimestamp() };
+  f.busy('جاري الحفظ…');
+  try {
+    await runTransaction(db, async tx => {
+      if (!f.isCurrent()) throw new Error('تم إلغاء العملية');
+      const existing = await tx.get(ref);
+      if (existing.exists()) throw new Error('هذا البيان مسجل بالفعل');
+      if (!f.isCurrent()) throw new Error('تم إلغاء العملية');
+      tx.set(ref, record);
+    });
+    f.result(true, `${receipt} ${DECLARATION_LABEL}`, [['السنة', year]]);
+  } catch (e) {
+    f.result(false, 'لم يتم حفظ البيان', [['السبب', errMsg(e)]]);
+  }
 }
 
 /* ---------- إدخال وصل أمانة ---------- */
