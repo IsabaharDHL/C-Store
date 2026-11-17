@@ -665,7 +665,7 @@ function renderExport() {
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
     <hr class="export-divider">
     <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
-    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ، مع خانتي صح وغلط</p>
+    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ، مع خانتي موجود وغير موجود</p>
     </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
@@ -783,8 +783,8 @@ async function inventoryWorkbook(list) {
     { header: 'رقم وصل الأمانة', width: 21 },
     { header: 'السنة', width: 9 },
     { header: 'المحتويات', width: 38 },
-    { header: 'صح', width: 8 },
-    { header: 'غلط', width: 8 }
+    { header: 'موجود', width: 9 },
+    { header: 'غير موجود', width: 13 }
   ];
   for (const [index, parcel] of list.entries()) {
     const contents = String(parcel.contents ?? '');
@@ -793,6 +793,7 @@ async function inventoryWorkbook(list) {
     row.height = Math.min(400, Math.max(24, lines * 15 + 8));
   }
   const edge = { style: 'thin', color: { argb: 'FF64748B' } };
+  const headerColors = ['FFE2E8F0', 'FFE2E8F0', 'FFE2E8F0', 'FFE2E8F0', 'FF15803D', 'FFB91C1C'];
   sheet.getRow(1).height = 28;
   sheet.eachRow((row, number) => {
     for (let col = 1; col <= sheet.columns.length; col++) {
@@ -800,7 +801,10 @@ async function inventoryWorkbook(list) {
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' };
       cell.border = { top: edge, bottom: edge, left: edge, right: edge };
       cell.font = { name: 'Arial', size: 11, bold: number === 1 };
-      if (number === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      if (number === 1) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColors[col - 1] } };
+        if (col >= 5) cell.font.color = { argb: 'FFFFFFFF' };
+      }
     }
   });
   return book.xlsx.writeBuffer();
