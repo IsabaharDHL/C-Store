@@ -664,7 +664,7 @@ function renderExport() {
     <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات والبيانات المبسطة حسب يوم الوردية عند التسجيل.</p>
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
     <hr class="export-divider">
-    <button id="xInventory" type="button" class="btn gold">جرد المستودع · A4 عمودي</button>
+    <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
     <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ، مع خانتي صح وغلط</p>
     </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
