@@ -693,7 +693,7 @@ async function exportExcel(from, to, kind = 'all') {
   if (!['in','out','all','inventory'].includes(kind)) return;
   const inventory = kind === 'inventory';
   const isCurrent = currentView(), section = curSec;
-  if (typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
+  if (!inventory && typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
   if (!inventory) {
     if (!from || !to) return toast('يرجى اختيار التاريخين', 'err');
     if (from > to) [from, to] = [to, from];
@@ -713,6 +713,90 @@ async function exportExcel(from, to, kind = 'all') {
     .sort((a, b) => bySequence(a, b) || ms(a.addedAt) - ms(b.addedAt));
   if (!list.length) return toast(inventory ? 'لا توجد طرود محجوزة في المستودع' : 'لا توجد سجلات خلال هذه الفترة', 'err');
 
+  const f = s => s.split('-').reverse().join('-');
+  const sectionName = secName(section).replace(/\s+/g, '-');
+  const name = inventory
+    ? `جرد-المستودع-${sectionName}.xlsx`
+    : `جرد-${kind}-${sectionName}-من-${f(from)}-إلى-${f(to)}.xlsx`;
+  let data;
+  try {
+    data = inventory ? await inventoryWorkbook(list) : datedExportWorkbook(list);
+  } catch (e) { if (isCurrent()) fail(e); return; }
+  if (!isCurrent() || epoch !== sessionEpoch) return;
+  const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const file = new File([blob], name, { type: blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
+  } catch (e) { if (e?.name === 'AbortError') return; }
+  if (epoch !== sessionEpoch || !me) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast(`تم تجهيز الجرد: ${list.length} طرد`);
+}
+
+let inventoryExcelLibrary;
+function loadInventoryExcel() {
+  inventoryExcelLibrary ??= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    script.onload = () => resolve(window.ExcelJS);
+    script.onerror = () => {
+      script.remove();
+      inventoryExcelLibrary = undefined;
+      reject(new Error('تعذّر تحميل مكتبة جرد المستودع، يرجى التأكد من الاتصال بالإنترنت'));
+    };
+    document.head.appendChild(script);
+  });
+  return inventoryExcelLibrary;
+}
+
+async function inventoryWorkbook(list) {
+  const { Workbook } = await loadInventoryExcel();
+  const book = new Workbook();
+  const sheet = book.addWorksheet('جرد المستودع', {
+    views: [{ rightToLeft: true }],
+    pageSetup: {
+      paperSize: 9, // A4
+      orientation: 'portrait',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      printTitlesRow: '1:1',
+      horizontalCentered: true,
+      margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 }
+    }
+  });
+  sheet.columns = [
+    { header: 'م', width: 6 },
+    { header: 'رقم وصل الأمانة', width: 21 },
+    { header: 'السنة', width: 9 },
+    { header: 'المحتويات', width: 38 },
+    { header: 'صح', width: 8 },
+    { header: 'غلط', width: 8 }
+  ];
+  for (const [index, parcel] of list.entries()) {
+    const contents = String(parcel.contents ?? '');
+    const row = sheet.addRow([index + 1, parcel.receipt ?? '', parcel.year ?? '', contents, '', '']);
+    const lines = contents.split(/\r?\n/).reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 34)), 0);
+    row.height = Math.min(400, Math.max(24, lines * 15 + 8));
+  }
+  const edge = { style: 'thin', color: { argb: 'FF64748B' } };
+  sheet.getRow(1).height = 28;
+  sheet.eachRow((row, number) => {
+    for (let col = 1; col <= sheet.columns.length; col++) {
+      const cell = row.getCell(col);
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' };
+      cell.border = { top: edge, bottom: edge, left: edge, right: edge };
+      cell.font = { name: 'Arial', size: 11, bold: number === 1 };
+      if (number === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    }
+  });
+  return book.xlsx.writeBuffer();
+}
+
+function datedExportWorkbook(list) {
   const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
   const rows = list.map((p, i) => {
     const out = p.status === 'out';
@@ -757,24 +841,7 @@ async function exportExcel(from, to, kind = 'all') {
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
   XLSX.utils.book_append_sheet(wb, ws, 'الجرد');
-
-  const f = s => s.split('-').reverse().join('-');
-  const sectionName = secName(section).replace(/\s+/g, '-');
-  const name = inventory
-    ? `جرد-المستودع-${sectionName}.xlsx`
-    : `جرد-${kind}-${sectionName}-من-${f(from)}-إلى-${f(to)}.xlsx`;
-  const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const file = new File([blob], name, { type: blob.type });
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
-  } catch (e) { if (e?.name === 'AbortError') return; }
-  if (epoch !== sessionEpoch || !me) return;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  toast(`تم تجهيز الجرد: ${rows.length} طرد`);
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 }
 
 /* ---------- قراءة محسّنة للباركود الضعيف: تباين أعلى + بحث أدق ---------- */
