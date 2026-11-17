@@ -766,7 +766,7 @@ async function inventoryWorkbook(list) {
   const { Workbook } = await loadInventoryExcel();
   const book = new Workbook();
   const sheet = book.addWorksheet('جرد المستودع', {
-    views: [{ rightToLeft: true }],
+    views: [{ rightToLeft: true, style: 'pageLayout' }],
     pageSetup: {
       paperSize: 9, // A4
       orientation: 'portrait',
