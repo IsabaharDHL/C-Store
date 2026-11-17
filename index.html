@@ -665,7 +665,7 @@ function renderExport() {
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
     <hr class="export-divider">
     <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
-    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ، مع خانتي موجود وغير موجود</p>
+    <p class="mut sm center-t">تحميل PDF للمحجوزات الحالية من كل التواريخ</p>
     </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
@@ -717,11 +717,11 @@ async function exportExcel(from, to, kind = 'all') {
   const sectionName = secName(section).replace(/\s+/g, '-');
   const exportTime = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
   const name = inventory
-    ? `جرد-المستودع-A4-${sectionName}-${exportTime}.xlsx`
+    ? `جرد-المستودع-A4-${sectionName}-${exportTime}.pdf`
     : `جرد-${kind}-${sectionName}-من-${f(from)}-إلى-${f(to)}.xlsx`;
   let data;
   try {
-    data = inventory ? await inventoryWorkbook(list) : datedExportWorkbook(list);
+    data = inventory ? await inventoryPdf(list) : datedExportWorkbook(list);
   } catch (e) {
     if (isCurrent()) {
       if (inventory) toast(e.message || 'تعذّر تجهيز ملف جرد المستودع', 'err');
@@ -730,7 +730,8 @@ async function exportExcel(from, to, kind = 'all') {
     return;
   }
   if (!isCurrent() || epoch !== sessionEpoch) return;
-  const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const type = inventory ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const blob = new Blob([data], { type });
   const file = new File([blob], name, { type: blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
@@ -743,73 +744,135 @@ async function exportExcel(from, to, kind = 'all') {
   toast(`تم تجهيز الجرد: ${list.length} طرد`);
 }
 
-let inventoryExcelLibrary;
-function loadInventoryExcel() {
-  inventoryExcelLibrary ??= new Promise((resolve, reject) => {
+let inventoryPdfLibrary;
+function loadInventoryPdf() {
+  inventoryPdfLibrary ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    script.src = 'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
     const unavailable = () => {
       script.remove();
-      reject(new Error('تعذّر تحميل مكتبة جرد المستودع، يرجى التأكد من الاتصال بالإنترنت'));
+      reject(new Error('تعذّر تحميل مكتبة PDF، يرجى التأكد من الاتصال بالإنترنت'));
     };
-    script.onload = () => window.ExcelJS?.Workbook ? resolve(window.ExcelJS) : unavailable();
+    script.onload = () => window.jspdf?.jsPDF ? resolve(window.jspdf.jsPDF) : unavailable();
     script.onerror = unavailable;
     document.head.appendChild(script);
   }).catch(error => {
-    inventoryExcelLibrary = undefined;
+    inventoryPdfLibrary = undefined;
     throw error;
   });
-  return inventoryExcelLibrary;
+  return inventoryPdfLibrary;
 }
 
-async function inventoryWorkbook(list) {
-  const { Workbook } = await loadInventoryExcel();
-  const book = new Workbook();
-  const sheet = book.addWorksheet('جرد المستودع', {
-    views: [{ rightToLeft: true, style: 'pageLayout' }],
-    pageSetup: {
-      paperSize: 9, // A4
-      orientation: 'portrait',
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      printTitlesRow: '1:1',
-      printArea: `A1:F${list.length + 1}`,
-      horizontalCentered: true,
-      verticalCentered: true,
-      margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 }
-    }
-  });
-  sheet.columns = [
-    { header: 'م', width: 6 },
-    { header: 'رقم وصل الأمانة', width: 21 },
-    { header: 'السنة', width: 9 },
-    { header: 'المحتويات', width: 38 },
-    { header: 'موجود', width: 9 },
-    { header: 'غير موجود', width: 13 }
-  ];
-  for (const [index, parcel] of list.entries()) {
-    const contents = String(parcel.contents ?? '');
-    const row = sheet.addRow([index + 1, parcel.receipt ?? '', parcel.year ?? '', contents, '', '']);
-    const lines = contents.split(/\r?\n/).reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 34)), 0);
-    row.height = Math.min(400, Math.max(24, lines * 15 + 8));
-  }
-  const edge = { style: 'thin', color: { argb: 'FF64748B' } };
-  const headerColors = ['FFE2E8F0', 'FFE2E8F0', 'FFE2E8F0', 'FFE2E8F0', 'FF15803D', 'FFB91C1C'];
-  sheet.getRow(1).height = 28;
-  sheet.eachRow((row, number) => {
-    for (let col = 1; col <= sheet.columns.length; col++) {
-      const cell = row.getCell(col);
-      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' };
-      cell.border = { top: edge, bottom: edge, left: edge, right: edge };
-      cell.font = { name: 'Arial', size: 11, bold: number === 1 };
-      if (number === 1) {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColors[col - 1] } };
-        if (col >= 5) cell.font.color = { argb: 'FFFFFFFF' };
+function wrapInventoryContents(ctx, value, width) {
+  const lines = [];
+  for (const paragraph of String(value ?? '').split(/\r?\n/)) {
+    let line = '';
+    for (const word of paragraph.trim().split(/\s+/)) {
+      const candidate = line ? line + ' ' + word : word;
+      if (ctx.measureText(candidate).width <= width) {
+        line = candidate;
+        continue;
+      }
+      if (line) lines.push(line);
+      line = '';
+      for (const char of word) {
+        if (line && ctx.measureText(line + char).width > width) {
+          lines.push(line);
+          line = '';
+        }
+        line += char;
       }
     }
-  });
-  return book.xlsx.writeBuffer();
+    lines.push(line);
+  }
+  return lines;
+}
+
+async function inventoryPdf(list) {
+  const JsPdf = await loadInventoryPdf();
+  const pdf = new JsPdf({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
+  const pageWidth = pdf.internal.pageSize.getWidth(), pageHeight = pdf.internal.pageSize.getHeight();
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(pageWidth * 2);
+  canvas.height = Math.ceil(pageHeight * 2);
+  try {
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) throw new Error('تعذّر رسم جدول جرد المستودع');
+    ctx.scale(canvas.width / pageWidth, canvas.height / pageHeight);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.direction = 'rtl';
+    const headers = ['م', 'رقم وصل الأمانة', 'السنة', 'المحتويات', 'موجود', 'غير موجود'];
+    const widths = [30, 92, 46, 214, 60, 78];
+    const tableWidth = widths.reduce((total, width) => total + width, 0);
+    const tableRight = (pageWidth + tableWidth) / 2;
+    const headerColors = ['#e2e8f0', '#e2e8f0', '#e2e8f0', '#e2e8f0', '#15803d', '#b91c1c'];
+    const bodyFont = '12px Arial, sans-serif';
+    const lineHeight = 16, bottom = pageHeight - 42;
+    let page = 0, y;
+    const drawRow = (values, height, header = false) => {
+      ctx.font = header ? 'bold 12px Arial, sans-serif' : bodyFont;
+      let right = tableRight;
+      values.forEach((value, index) => {
+        const width = widths[index], left = right - width;
+        if (header) {
+          ctx.fillStyle = headerColors[index];
+          ctx.fillRect(left, y, width, height);
+        }
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 0.6;
+        ctx.strokeRect(left, y, width, height);
+        ctx.fillStyle = header && index >= 4 ? '#ffffff' : '#0f172a';
+        const lines = Array.isArray(value) ? value : [String(value ?? '')];
+        ctx.direction = index < 3 && !header ? 'ltr' : 'rtl';
+        lines.forEach((line, lineIndex) => {
+          ctx.fillText(line, left + width / 2, y + height / 2 + (lineIndex - (lines.length - 1) / 2) * lineHeight, width - 12);
+        });
+        right = left;
+      });
+      y += height;
+    };
+    const beginPage = () => {
+      if (page) pdf.addPage();
+      page++;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, pageWidth, pageHeight);
+      ctx.fillStyle = '#0f172a';
+      ctx.direction = 'rtl';
+      ctx.font = 'bold 20px Arial, sans-serif';
+      ctx.fillText('جرد المستودع', pageWidth / 2, 39);
+      y = 60;
+      drawRow(headers, 28, true);
+      ctx.font = bodyFont;
+    };
+    const finishPage = () => {
+      ctx.font = bodyFont;
+      ctx.fillStyle = '#475569';
+      ctx.fillText(String(page), pageWidth / 2, pageHeight - 24);
+      const jpeg = canvas.toDataURL('image/jpeg', 0.93);
+      pdf.addImage(jpeg, 'JPEG', 0, 0, pageWidth, pageHeight, 'inventory-' + page);
+    };
+
+    beginPage();
+    const maxLines = Math.floor((bottom - y - 8) / lineHeight);
+    for (const [index, parcel] of list.entries()) {
+      const lines = wrapInventoryContents(ctx, parcel.contents, widths[3] - 12);
+      for (let offset = 0; offset < lines.length; offset += maxLines) {
+        const chunk = lines.slice(offset, offset + maxLines);
+        const height = Math.max(24, chunk.length * lineHeight + 8);
+        if (y + height > bottom) {
+          finishPage();
+          beginPage();
+        }
+        drawRow([index + 1, parcel.receipt, parcel.year, chunk, '', ''], height);
+      }
+    }
+    finishPage();
+    return pdf.output('arraybuffer');
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 function datedExportWorkbook(list) {
