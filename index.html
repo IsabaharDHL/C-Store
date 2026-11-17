@@ -664,8 +664,8 @@ function renderExport() {
     <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات والبيانات المبسطة حسب يوم الوردية عند التسجيل.</p>
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
     <hr class="export-divider">
-    <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
-    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ</p>
+    <button id="xInventory" type="button" class="btn gold">جرد المستودع · A4 عمودي</button>
+    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ، مع خانتي صح وغلط</p>
     </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
@@ -715,13 +715,20 @@ async function exportExcel(from, to, kind = 'all') {
 
   const f = s => s.split('-').reverse().join('-');
   const sectionName = secName(section).replace(/\s+/g, '-');
+  const exportTime = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
   const name = inventory
-    ? `جرد-المستودع-${sectionName}.xlsx`
+    ? `جرد-المستودع-A4-${sectionName}-${exportTime}.xlsx`
     : `جرد-${kind}-${sectionName}-من-${f(from)}-إلى-${f(to)}.xlsx`;
   let data;
   try {
     data = inventory ? await inventoryWorkbook(list) : datedExportWorkbook(list);
-  } catch (e) { if (isCurrent()) fail(e); return; }
+  } catch (e) {
+    if (isCurrent()) {
+      if (inventory) toast(e.message || 'تعذّر تجهيز ملف جرد المستودع', 'err');
+      else fail(e);
+    }
+    return;
+  }
   if (!isCurrent() || epoch !== sessionEpoch) return;
   const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const file = new File([blob], name, { type: blob.type });
@@ -741,13 +748,16 @@ function loadInventoryExcel() {
   inventoryExcelLibrary ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
-    script.onload = () => resolve(window.ExcelJS);
-    script.onerror = () => {
+    const unavailable = () => {
       script.remove();
-      inventoryExcelLibrary = undefined;
       reject(new Error('تعذّر تحميل مكتبة جرد المستودع، يرجى التأكد من الاتصال بالإنترنت'));
     };
+    script.onload = () => window.ExcelJS?.Workbook ? resolve(window.ExcelJS) : unavailable();
+    script.onerror = unavailable;
     document.head.appendChild(script);
+  }).catch(error => {
+    inventoryExcelLibrary = undefined;
+    throw error;
   });
   return inventoryExcelLibrary;
 }
