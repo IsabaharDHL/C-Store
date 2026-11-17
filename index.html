@@ -808,7 +808,9 @@ async function inventoryPdf(list) {
     const tableRight = (pageWidth + tableWidth) / 2;
     const headerColors = ['#e2e8f0', '#e2e8f0', '#e2e8f0', '#e2e8f0', '#15803d', '#b91c1c'];
     const bodyFont = '12px Arial, sans-serif';
-    const lineHeight = 16, bottom = pageHeight - 42;
+    const lineHeight = 16;
+    const signatureGap = 14, signatureHeight = 60;
+    const bottom = pageHeight - 42 - signatureGap - signatureHeight;
     let page = 0, y;
     const drawRow = (values, height, header = false) => {
       ctx.font = header ? 'bold 12px Arial, sans-serif' : bodyFont;
@@ -867,6 +869,23 @@ async function inventoryPdf(list) {
         drawRow([index + 1, parcel.receipt, parcel.year, chunk, '', ''], height);
       }
     }
+    const shiftNumberWidth = 126, fieldGap = 12;
+    const signatureWidth = tableWidth - shiftNumberWidth - fieldGap;
+    const fieldsY = y + signatureGap;
+    const tableLeft = tableRight - tableWidth;
+    const drawField = (label, left, width) => {
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(left, fieldsY, width, signatureHeight);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 12px Arial, sans-serif';
+      ctx.direction = 'rtl';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, left + width - 10, fieldsY + 14, width - 20);
+    };
+    drawField('رقم النوبة', tableLeft, shiftNumberWidth);
+    drawField('توقيع النوبة', tableRight - signatureWidth, signatureWidth);
+    ctx.textAlign = 'center';
     finishPage();
     return pdf.output('arraybuffer');
   } finally {
