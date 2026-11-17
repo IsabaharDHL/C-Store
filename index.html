@@ -117,6 +117,7 @@ select.inp{appearance:none;-webkit-appearance:none}
 .emp .mini{flex:1 1 calc(50% - 10px);min-height:44px;padding:9px 8px}
 .export-filters{max-width:420px;margin:20px auto;text-align:center}
 .export-filters label{margin-top:0}
+.export-divider{border:0;border-top:1px solid var(--line);margin:24px 0}
 .export-filters>div{min-width:0}
 .export-filters input[type=date]{display:block;min-width:0;max-width:100%;appearance:none;-webkit-appearance:none;text-align:center;direction:ltr;padding:12px 8px;font-size:15px}
 .export-filters input::-webkit-date-and-time-value{text-align:center}
@@ -661,10 +662,15 @@ function renderExport() {
   view(`<div class="wrap"><header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">تصدير Excel · ${esc(secName(curSec))}</div></header>
     <div class="grid2 export-filters"><div><label for="xFrom">من تاريخ</label><input id="xFrom" type="date" class="inp"></div><div><label for="xTo">إلى تاريخ</label><input id="xTo" type="date" class="inp"></div></div>
     <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات والبيانات المبسطة حسب يوم الوردية عند التسجيل.</p>
-    ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}</div>`);
+    ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
+    <hr class="export-divider">
+    <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
+    <p class="mut sm center-t">المحجوزات الحالية من كل التواريخ</p>
+    </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
   document.querySelectorAll('[data-export]').forEach(b => b.onclick = () => exportExcel($('#xFrom').value, $('#xTo').value, b.dataset.export));
+  on('#xInventory', 'click', () => exportExcel(null, null, 'inventory'));
 }
 function receiptKey(p) {
   const m = String(p.receipt || '').match(/^([A-Z]+)(\d+)$/);
@@ -684,21 +690,28 @@ function plainWhen(ts) { const [d, s, t] = parts(ts); return d ? `${d}، ${s}، 
 async function exportExcel(from, to, kind = 'all') {
   const epoch = sessionEpoch;
   if (!me) return;
-  if (!['in','out','all'].includes(kind)) return;
+  if (!['in','out','all','inventory'].includes(kind)) return;
+  const inventory = kind === 'inventory';
   const isCurrent = currentView(), section = curSec;
   if (typeof XLSX === 'undefined') return toast('تعذّر تحميل مكتبة Excel، يرجى التأكد من الاتصال بالإنترنت', 'err');
-  if (!from || !to) return toast('يرجى اختيار التاريخين', 'err');
-  if (from > to) [from, to] = [to, from];
+  if (!inventory) {
+    if (!from || !to) return toast('يرجى اختيار التاريخين', 'err');
+    if (from > to) [from, to] = [to, from];
+  }
   const ms = t => (t?.toMillis ? t.toMillis() : 0);
   let snapshot;
   try { snapshot = await getDocsFromServer(query(collection(db, 'parcels'), ...(me.isSuper && section === 'all' ? [] : [where('section', '==', section)]))); }
   catch (e) { if (isCurrent()) fail(e); return; }
   if (!isCurrent()) return;
   const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
-    .filter(p => ['in','out','declaration'].includes(p.status) && (kind === 'all' || p.status === kind))
-    .filter(p => { if (!p.addedAt) return false; const d = ymd(shiftDay(p.addedAt.toDate())); return d >= from && d <= to; })
+    .filter(p => {
+      if (inventory) return p.status === 'in';
+      if (!['in','out','declaration'].includes(p.status) || (kind !== 'all' && p.status !== kind) || !p.addedAt) return false;
+      const d = ymd(shiftDay(p.addedAt.toDate()));
+      return d >= from && d <= to;
+    })
     .sort((a, b) => bySequence(a, b) || ms(a.addedAt) - ms(b.addedAt));
-  if (!list.length) return toast('لا توجد سجلات خلال هذه الفترة', 'err');
+  if (!list.length) return toast(inventory ? 'لا توجد طرود محجوزة في المستودع' : 'لا توجد سجلات خلال هذه الفترة', 'err');
 
   const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
   const rows = list.map((p, i) => {
@@ -746,7 +759,10 @@ async function exportExcel(from, to, kind = 'all') {
   XLSX.utils.book_append_sheet(wb, ws, 'الجرد');
 
   const f = s => s.split('-').reverse().join('-');
-  const name = `جرد-${kind}-${secName(section).replace(/\s+/g, '-')}-من-${f(from)}-إلى-${f(to)}.xlsx`;
+  const sectionName = secName(section).replace(/\s+/g, '-');
+  const name = inventory
+    ? `جرد-المستودع-${sectionName}.xlsx`
+    : `جرد-${kind}-${sectionName}-من-${f(from)}-إلى-${f(to)}.xlsx`;
   const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const file = new File([blob], name, { type: blob.type });
