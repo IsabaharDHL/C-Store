@@ -657,6 +657,12 @@ function renderList(kind) {
 }
 
 /* ---------- تصدير الجرد Excel ---------- */
+function inventoryDate(date = new Date()) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bahrain', day: '2-digit', month: '2-digit', year: 'numeric'
+  }).format(date);
+}
+
 function renderExport() {
   if (!me) return;
   view(`<div class="wrap"><header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">تصدير Excel · ${esc(secName(curSec))}</div></header>
@@ -664,6 +670,7 @@ function renderExport() {
     <p class="mut sm">الفترة حسب يوم الوردية لتاريخ حجز الطرد. السجل الشامل يجمع المحجوزات والمسلمات والبيانات المبسطة حسب يوم الوردية عند التسجيل.</p>
     ${['in','out','all'].map((k,i) => `<button class="btn line" data-export="${k}">${['المحجوزات','المسلمات','السجل الشامل'][i]}</button>`).join('')}
     <hr class="export-divider">
+    <p class="mut sm" style="text-align:left">تاريخ الجرد <bdi dir="ltr">${inventoryDate()}</bdi></p>
     <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
     <p class="mut sm center-t">تحميل PDF للمحجوزات الحالية من كل التواريخ</p>
     <div id="inventoryReady" hidden>
@@ -849,9 +856,7 @@ async function inventoryPdf(list) {
     const tableWidth = widths.reduce((total, width) => total + width, 0);
     const tableRight = (pageWidth + tableWidth) / 2;
     const tableLeft = tableRight - tableWidth;
-    const reportDate = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Bahrain', day: '2-digit', month: '2-digit', year: 'numeric'
-    }).format(new Date());
+    const reportDate = inventoryDate();
     const headerColors = ['#e2e8f0', '#e2e8f0', '#e2e8f0', '#e2e8f0', '#15803d', '#b91c1c'];
     const bodyFont = '12px Arial, sans-serif';
     const lineHeight = 16;
