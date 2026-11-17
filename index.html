@@ -848,6 +848,10 @@ async function inventoryPdf(list) {
     const widths = [30, 92, 46, 214, 60, 78];
     const tableWidth = widths.reduce((total, width) => total + width, 0);
     const tableRight = (pageWidth + tableWidth) / 2;
+    const tableLeft = tableRight - tableWidth;
+    const reportDate = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bahrain', day: '2-digit', month: '2-digit', year: 'numeric'
+    }).format(new Date());
     const headerColors = ['#e2e8f0', '#e2e8f0', '#e2e8f0', '#e2e8f0', '#15803d', '#b91c1c'];
     const bodyFont = '12px Arial, sans-serif';
     const lineHeight = 16;
@@ -885,6 +889,11 @@ async function inventoryPdf(list) {
       ctx.direction = 'rtl';
       ctx.font = 'bold 20px Arial, sans-serif';
       ctx.fillText('جرد المستودع', pageWidth / 2, 39);
+      ctx.font = bodyFont;
+      ctx.direction = 'ltr';
+      ctx.textAlign = 'left';
+      ctx.fillText(reportDate, tableLeft, 39);
+      ctx.textAlign = 'center';
       y = 60;
       drawRow(headers, 28, true);
       ctx.font = bodyFont;
@@ -914,7 +923,6 @@ async function inventoryPdf(list) {
     const shiftNumberWidth = 126, fieldGap = 12;
     const signatureWidth = tableWidth - shiftNumberWidth - fieldGap;
     const fieldsY = y + signatureGap;
-    const tableLeft = tableRight - tableWidth;
     const drawField = (label, left, width) => {
       ctx.strokeStyle = '#64748b';
       ctx.lineWidth = 0.8;
