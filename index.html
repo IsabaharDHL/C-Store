@@ -666,11 +666,28 @@ function renderExport() {
     <hr class="export-divider">
     <button id="xInventory" type="button" class="btn gold">جرد المستودع</button>
     <p class="mut sm center-t">تحميل PDF للمحجوزات الحالية من كل التواريخ</p>
+    <div id="inventoryReady" hidden>
+      <p id="inventoryStatus" class="mut sm center-t" role="status"></p>
+      <button id="inventoryDownload" type="button" class="btn line">تنزيل PDF</button>
+      <button id="inventoryShare" type="button" class="btn line" hidden>مشاركة PDF</button>
+    </div>
     </div>`);
   const t = shiftDay(); $('#xFrom').value = ymd(new Date(t.getFullYear(), t.getMonth(), 1)); $('#xTo').value = ymd(t);
   on('#back', 'click', renderHome);
   document.querySelectorAll('[data-export]').forEach(b => b.onclick = () => exportExcel($('#xFrom').value, $('#xTo').value, b.dataset.export));
-  on('#xInventory', 'click', () => exportExcel(null, null, 'inventory'));
+  const inventoryButton = $('#xInventory'), ready = $('#inventoryReady');
+  inventoryButton.onclick = async () => {
+    ready.hidden = true;
+    $('#inventoryShare').onclick = $('#inventoryDownload').onclick = null;
+    inventoryButton.disabled = true;
+    inventoryButton.textContent = 'جاري تجهيز PDF…';
+    try {
+      await exportExcel(null, null, 'inventory');
+    } finally {
+      inventoryButton.disabled = false;
+      inventoryButton.textContent = 'جرد المستودع';
+    }
+  };
 }
 function receiptKey(p) {
   const m = String(p.receipt || '').match(/^([A-Z]+)(\d+)$/);
@@ -733,6 +750,7 @@ async function exportExcel(from, to, kind = 'all') {
   const type = inventory ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([data], { type });
   const file = new File([blob], name, { type: blob.type });
+  if (inventory) return showInventoryPdf(file, list.length);
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
   } catch (e) { if (e?.name === 'AbortError') return; }
@@ -744,11 +762,35 @@ async function exportExcel(from, to, kind = 'all') {
   toast(`تم تجهيز الجرد: ${list.length} طرد`);
 }
 
+function showInventoryPdf(file, count) {
+  $('#inventoryStatus').textContent = `ملف الجرد جاهز · ${count} طرد`;
+  $('#inventoryDownload').onclick = () => {
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  const share = $('#inventoryShare');
+  share.hidden = !navigator.canShare?.({ files: [file] });
+  if (!share.hidden) share.onclick = async () => {
+    try {
+      await navigator.share({ files: [file], title: 'جرد المستودع' });
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast('تعذّرت المشاركة. اضغط تنزيل PDF لحفظ الملف.', 'err');
+    }
+  };
+  $('#inventoryReady').hidden = false;
+}
+
 let inventoryPdfLibrary;
 function loadInventoryPdf() {
   inventoryPdfLibrary ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
+    script.src = './vendor/jspdf-4.2.1.umd.min.js';
     const unavailable = () => {
       script.remove();
       reject(new Error('تعذّر تحميل مكتبة PDF، يرجى التأكد من الاتصال بالإنترنت'));
