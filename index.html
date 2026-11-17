@@ -757,7 +757,7 @@ async function exportExcel(from, to, kind = 'all') {
   const type = inventory ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([data], { type });
   const file = new File([blob], name, { type: blob.type });
-  if (inventory) return showInventoryPdf(file, list.length);
+  if (inventory) return showPreparedPdf(file, 'inventory', 'جرد المستودع', `ملف الجرد جاهز · ${list.length} طرد`);
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'جرد المستودع' }); return; }
   } catch (e) { if (e?.name === 'AbortError') return; }
@@ -769,9 +769,9 @@ async function exportExcel(from, to, kind = 'all') {
   toast(`تم تجهيز الجرد: ${list.length} طرد`);
 }
 
-function showInventoryPdf(file, count) {
-  $('#inventoryStatus').textContent = `ملف الجرد جاهز · ${count} طرد`;
-  $('#inventoryDownload').onclick = () => {
+function showPreparedPdf(file, prefix, title, message) {
+  $(`#${prefix}Status`).textContent = message;
+  $(`#${prefix}Download`).onclick = () => {
     const url = URL.createObjectURL(file);
     const link = document.createElement('a');
     link.href = url;
@@ -781,21 +781,21 @@ function showInventoryPdf(file, count) {
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
-  const share = $('#inventoryShare');
+  const share = $(`#${prefix}Share`);
   share.hidden = !navigator.canShare?.({ files: [file] });
   if (!share.hidden) share.onclick = async () => {
     try {
-      await navigator.share({ files: [file], title: 'جرد المستودع' });
+      await navigator.share({ files: [file], title });
     } catch (error) {
       if (error?.name !== 'AbortError') toast('تعذّرت المشاركة. اضغط تنزيل PDF لحفظ الملف.', 'err');
     }
   };
-  $('#inventoryReady').hidden = false;
+  $(`#${prefix}Ready`).hidden = false;
 }
 
-let inventoryPdfLibrary;
-function loadInventoryPdf() {
-  inventoryPdfLibrary ??= new Promise((resolve, reject) => {
+let pdfLibrary;
+function loadPdfLibrary() {
+  pdfLibrary ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = './vendor/jspdf-4.2.1.umd.min.js';
     const unavailable = () => {
@@ -806,10 +806,10 @@ function loadInventoryPdf() {
     script.onerror = unavailable;
     document.head.appendChild(script);
   }).catch(error => {
-    inventoryPdfLibrary = undefined;
+    pdfLibrary = undefined;
     throw error;
   });
-  return inventoryPdfLibrary;
+  return pdfLibrary;
 }
 
 function wrapInventoryContents(ctx, value, width) {
@@ -838,7 +838,7 @@ function wrapInventoryContents(ctx, value, width) {
 }
 
 async function inventoryPdf(list) {
-  const JsPdf = await loadInventoryPdf();
+  const JsPdf = await loadPdfLibrary();
   const pdf = new JsPdf({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
   const pageWidth = pdf.internal.pageSize.getWidth(), pageHeight = pdf.internal.pageSize.getHeight();
   const canvas = document.createElement('canvas');
@@ -1752,18 +1752,79 @@ async function tabSections() {
   });
 }
 
+async function shelfBarcodesPdf(codes) {
+  if (typeof JsBarcode !== 'function') throw new Error('تعذّر تحميل مولّد الباركود');
+  const JsPdf = await loadPdfLibrary();
+  const pdf = new JsPdf({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+  const columns = 2, rows = 3, perPage = columns * rows;
+  const margin = 10, quietModules = 10;
+  const cellWidth = (pdf.internal.pageSize.getWidth() - 2 * margin) / columns;
+  const cellHeight = (pdf.internal.pageSize.getHeight() - 2 * margin) / rows;
+  const barcodeWidth = cellWidth - 10, barHeight = 28;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(24);
+  pdf.setFillColor(0);
+  pdf.setTextColor(0);
+  codes.forEach((code, index) => {
+    const slot = index % perPage;
+    if (index && slot === 0) pdf.addPage();
+    const x = margin + (slot % columns + 0.5) * cellWidth;
+    const y = margin + Math.floor(slot / columns) * cellHeight + 22;
+    const barcode = {};
+    JsBarcode(barcode, 'SH-' + code, { format: 'CODE128' });
+    const bits = barcode.encodings.map(encoding => encoding.data).join('');
+    const moduleWidth = barcodeWidth / (bits.length + 2 * quietModules);
+    const start = x - barcodeWidth / 2 + quietModules * moduleWidth;
+    for (const bar of bits.matchAll(/1+/g)) {
+      pdf.rect(start + bar.index * moduleWidth, y, bar[0].length * moduleWidth, barHeight, 'F');
+    }
+    pdf.text(code, x, y + barHeight + 12, { align: 'center' });
+  });
+  return pdf.output('arraybuffer');
+}
+
 function tabBarcode() {
   viewEpoch++;
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const numbers = [1, 2, 3, 4];
   $('#tabBody').innerHTML = `
     <div class="card"><h3>مولّد باركود الرفوف</h3>
       <p class="mut sm">اختر الرف لإنشاء صورة الباركود. اضغط على الصورة مطولاً واختر "حفظ في الصور"، أو استخدم زر المشاركة.</p>
       <div class="grid2">
         <div><label for="bL">الحرف</label><select id="bL" class="inp">${letters.map(l => `<option>${l}</option>`).join('')}</select></div>
-        <div><label for="bN">الرقم</label><select id="bN" class="inp">${[1, 2, 3, 4].map(n => `<option>${n}</option>`).join('')}</select></div>
+        <div><label for="bN">الرقم</label><select id="bN" class="inp">${numbers.map(n => `<option>${n}</option>`).join('')}</select></div>
       </div>
       <button id="bGen" class="btn gold">إنشاء الباركود</button>
-      <div id="bOut"></div></div>`;
+      <div id="bOut"></div>
+      <hr class="export-divider">
+      <button id="bExport" type="button" class="btn gold">تصدير كل باركودات الرفوف PDF</button>
+      <p class="mut sm center-t">٦ باركودات في كل صفحة A4</p>
+      <div id="barcodePdfReady" hidden>
+        <p id="barcodePdfStatus" class="mut sm center-t" role="status"></p>
+        <button id="barcodePdfDownload" type="button" class="btn line">تنزيل PDF</button>
+        <button id="barcodePdfShare" type="button" class="btn line" hidden>مشاركة PDF</button>
+      </div>
+    </div>`;
+  const exportButton = $('#bExport'), ready = $('#barcodePdfReady');
+  exportButton.onclick = async () => {
+    const isCurrent = currentView();
+    const codes = letters.flatMap(letter => numbers.map(number => letter + number));
+    ready.hidden = true;
+    exportButton.disabled = true;
+    exportButton.textContent = 'جاري تجهيز PDF…';
+    try {
+      const data = await shelfBarcodesPdf(codes);
+      if (!isCurrent()) return;
+      const file = new File([data], 'باركودات-الرفوف-A4.pdf', { type: 'application/pdf' });
+      showPreparedPdf(file, 'barcodePdf', 'باركودات الرفوف', `ملف الباركودات جاهز · ${codes.length} رف`);
+    } catch (error) {
+      if (isCurrent()) toast(error.message || 'تعذّر تجهيز باركودات الرفوف', 'err');
+    } finally {
+      exportButton.disabled = false;
+      exportButton.textContent = 'تصدير كل باركودات الرفوف PDF';
+    }
+  };
   on('#bGen', 'click', () => {
     const code = `${$('#bL').value}${$('#bN').value}`;
     const bc = document.createElement('canvas');
