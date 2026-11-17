@@ -774,7 +774,9 @@ async function inventoryWorkbook(list) {
       fitToWidth: 1,
       fitToHeight: 0,
       printTitlesRow: '1:1',
+      printArea: `A1:F${list.length + 1}`,
       horizontalCentered: true,
+      verticalCentered: true,
       margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 }
     }
   });
