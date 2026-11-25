@@ -5,12 +5,12 @@ import {doc,setDoc,getDoc,getDocs,collection,query,where,writeBatch,updateDoc,de
 let env;
 const ctx = id => env.authenticatedContext(id,{email:`${id}@example.com`,firebase:{sign_in_provider:'password'}}).firestore();
 const base = (id,section='dhl') => ({empNo:id,empName:id,section,shift:'صباح',shiftDate:'2026-10-08',sessionId:'test-session',actorUid:id,at:serverTimestamp()});
-const parcel = (id,operationId,section='dhl',port='2201') => ({section,receipt:'A1',year:'2026',port,raw:'20262201A1',contents:'test',shelf:'A1',status:'in',addedBy:id,addedByUid:id,addedByName:id,addedShift:'صباح',addedAt:serverTimestamp(),operationId});
+const parcel = (id,operationId,section='dhl',port='2201') => ({waybill:'1234567890',section,receipt:'A1',year:'2026',port,raw:'20262201A1',contents:'test',shelf:'A1',status:'in',addedBy:id,addedByUid:id,addedByName:id,addedShift:'صباح',addedAt:serverTimestamp(),operationId});
 async function seed(path,data) {await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),path),data));}
 async function add(id,pid,section='dhl',port='2201',log=true) {
  const db=ctx(id),op=`add-${pid}`,p=parcel(id,op,section,port),b=writeBatch(db);
  b.set(doc(db,'parcels',pid),p);
- if(log)b.set(doc(db,'logs',op),{...base(id,section),type:'add',parcelId:pid,receipt:p.receipt,year:p.year,shelf:p.shelf,contents:p.contents});
+ if(log)b.set(doc(db,'logs',op),{...base(id,section),type:'add',parcelId:pid,receipt:p.receipt,year:p.year,shelf:p.shelf,waybill:p.waybill,contents:p.contents});
  return b.commit();
 }
 async function action(id,pid,type,log=true,override={}) {
@@ -70,4 +70,27 @@ test('concurrent deliveries: exactly one commit, one delivery log',async()=>{awa
 test('audit stores previous delivery and actor after return',async()=>{const db=ctx('admin');const logs=await getDocs(query(collection(db,'logs'),where('parcelId','==','return'),where('section','==','dhl')));const l=logs.docs.map(d=>d.data()).find(d=>d.type==='return');if(l.before.deliveredTo!=='recipient'||l.before.status!=='out'||l.after.status!=='in'||l.actorUid!=='admin')throw Error('audit incomplete');});
 test('cross section admin cannot move, delete or return foreign parcel',async()=>{await assertFails(action('other','ok','move'));await assertFails(action('other','ok','delete'));});
 
-test('parcel count saves and survives move/delivery; invalid counts rejected',async()=>{for(const count of [3,0,-1,1.5,'3',10001]){const db=ctx('worker'),id='count-'+String(count),op='add-'+id,p={...parcel('worker',op),parcelCount:count},b=writeBatch(db);b.set(doc(db,'parcels',id),p);b.set(doc(db,'logs',op),{...base('worker'),type:'add',parcelId:id,receipt:p.receipt,year:p.year,shelf:p.shelf,contents:p.contents,parcelCount:count});if(count===3){await assertSucceeds(b.commit());await action('worker',id,'move');const saved=(await getDoc(doc(db,'parcels',id))).data();if(saved.parcelCount!==3)throw Error('count lost');await assertFails(action('worker',id,'move',true,{shelf:'C4',parcelCount:4}));await assertSucceeds(deliver('worker',id));if((await getDoc(doc(db,'parcels',id))).data().parcelCount!==3)throw Error('delivery count lost');}else await assertFails(b.commit());}});
+test('parcel count saves and survives move/delivery; invalid counts rejected',async()=>{for(const count of [3,0,-1,1.5,'3',10001]){const db=ctx('worker'),id='count-'+String(count),op='add-'+id,p={...parcel('worker',op),parcelCount:count},b=writeBatch(db);b.set(doc(db,'parcels',id),p);b.set(doc(db,'logs',op),{...base('worker'),type:'add',parcelId:id,receipt:p.receipt,year:p.year,shelf:p.shelf,waybill:p.waybill,contents:p.contents,parcelCount:count});if(count===3){await assertSucceeds(b.commit());await action('worker',id,'move');const saved=(await getDoc(doc(db,'parcels',id))).data();if(saved.parcelCount!==3)throw Error('count lost');await assertFails(action('worker',id,'move',true,{shelf:'C4',parcelCount:4}));await assertSucceeds(deliver('worker',id));if((await getDoc(doc(db,'parcels',id))).data().parcelCount!==3)throw Error('delivery count lost');}else await assertFails(b.commit());}});
+
+test('legacy waybill admin edits preserve delivered data',async()=>{
+ const old=parcel('worker','legacy-add'); delete old.waybill;
+ await seed('parcels/legacy-waybill',old);
+ await assertFails(action('worker','legacy-waybill','edit',true,{waybill:'1234567890'}));
+ await assertFails(action('other','legacy-waybill','edit',true,{waybill:'1234567890'}));
+ await assertFails(action('admin','legacy-waybill','edit',false,{waybill:'1234567890'}));
+ await assertFails(action('admin','legacy-waybill','edit',true,{waybill:'1234567890',contents:'tamper'}));
+ await assertSucceeds(action('admin','legacy-waybill','edit',true,{waybill:'1234567890'}));
+ await assertSucceeds(deliver('worker','legacy-waybill'));
+ await assertSucceeds(action('admin','legacy-waybill','edit',true,{waybill:'AB12345678'}));
+ const p=(await getDoc(doc(ctx('admin'),'parcels','legacy-waybill'))).data();
+ if(p.waybill!=='AB12345678'||p.status!=='out'||p.contents!=='test')throw Error('legacy edit lost data');
+});
+test('new parcel requires waybill and matching audit',async()=>{
+ for(const value of [undefined,'','SH-A1','bad<>','X'.repeat(101)]){
+ const db=ctx('worker'),id='badwaybill-'+String(value),op='add-'+id,p=parcel('worker',op);
+ if(value===undefined)delete p.waybill;else p.waybill=value;
+ const b=writeBatch(db);b.set(doc(db,'parcels',id),p);
+ b.set(doc(db,'logs',op),{...base('worker'),type:'add',parcelId:id,receipt:p.receipt,year:p.year,shelf:p.shelf,contents:p.contents,...(value===undefined?{}:{waybill:value})});
+ await assertFails(b.commit());
+ }
+});
