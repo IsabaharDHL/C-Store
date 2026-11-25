@@ -550,6 +550,13 @@ function startParcels() {
 
 const DECLARATION_LABEL = 'بيـــــــــــان مبسط';
 
+function normalizeWaybill(value) {
+  return toEn(String(value ?? '')).trim().toUpperCase();
+}
+function validWaybill(value) {
+  return /^[A-Z0-9][A-Z0-9 ./_-]{0,99}$/.test(value) && !value.startsWith('SH-');
+}
+
 function parcelCard(p) {
   if (p.status === 'declaration') {
     return `<div class="pc declaration"><div class="pc-h">
@@ -558,10 +565,11 @@ function parcelCard(p) {
     </div></div>`;
   }
   const isIn = p.status === 'in' || (p.status === 'deleted' && p.deletedFromStatus === 'in');
-  const actions = p.status === 'deleted' ? ['restore'] : isIn ? ['move', ...(me.isAdmin ? ['delete'] : [])] : (me.isAdmin ? ['return', 'delete'] : []);
+  const actions = p.status === 'deleted' ? ['restore'] : isIn ? ['move', ...(me.isAdmin ? ['edit', 'delete'] : [])] : (me.isAdmin ? ['edit', 'return', 'delete'] : []);
   return `<div class="pc ${isIn ? 'in' : 'out'}">
     <div class="pc-h"><div class="rno">${esc(p.receipt)} <span class="yr">/ ${esc(p.year)}</span>${secTag(p)}</div>
       <span class="badge ${isIn ? 'b-in' : 'b-out'}">${p.status === 'deleted' ? 'محذوف تجريبي — قابل للاسترجاع' : isIn ? 'في المستودع' : 'مسلّم'}</span></div>
+    <div class="row"><span>بوليصة الشحن</span><b dir="ltr">${esc(p.waybill || 'غير مسجلة')}</b></div>
     <div class="row"><span>المحتويات</span><b>${esc(p.contents)}</b></div><div class="row"><span>عدد الطرود</span><b>${parcelCount(p)}</b></div>
     ${isIn
       ? `<div class="shelf">الرف<b>${esc(p.shelf)}</b></div>
@@ -571,7 +579,7 @@ function parcelCard(p) {
          <div class="row"><span>كان على الرف</span><b>${esc(p.shelf)}</b></div>
          <div class="meta">سلّمه: ${esc(p.deliveredByName)}، ${fmt(p.deliveredAt)}</div>`}
     ${p.status === 'deleted' ? `<div class="row"><span>سبب الحذف</span><b>${esc(p.changeReason)}</b></div>` : ''}
-    <div class="grid2">${actions.map(a => `<button class="mini" data-parcel="${esc(p.id)}" data-op="${a}">${({move:'نقل إلى رف',delete:'حذف طرد تجريبي',return:'إرجاع للمحجوزات',restore:'استرجاع الطرد'})[a]}</button>`).join('')}</div>
+    <div class="grid2">${actions.map(a => `<button class="mini" data-parcel="${esc(p.id)}" data-op="${a}">${({edit:'تعديل بوليصة الشحن',move:'نقل إلى رف',delete:'حذف طرد تجريبي',return:'إرجاع للمحجوزات',restore:'استرجاع الطرد'})[a]}</button>`).join('')}</div>
   </div>`;
 }
 document.addEventListener('click', e => {
@@ -583,7 +591,7 @@ function runSearch(raw) {
   const res = $('#res'); if (!res) return;
   const q = normAr(raw);
   if (!q) { res.innerHTML = ''; return; }
-  const list = parcels.filter(p => p.status !== 'deleted').filter(p => normAr(p.receipt).includes(q) || normAr(p.contents).includes(q))
+  const list = parcels.filter(p => p.status !== 'deleted').filter(p => normAr(p.receipt).includes(q) || normAr(p.waybill || '').includes(q) || normAr(p.contents).includes(q))
     .sort((a, b) => Number(b.status === 'in') - Number(a.status === 'in') || (b.year || '').localeCompare(a.year || ''));
   res.innerHTML = list.length
     ? `<div class="res-h">${list.length} نتيجة</div>` + list.slice(0, 60).map(parcelCard).join('')
@@ -601,7 +609,7 @@ function renderHome() {
       <option value="all"${isAll() ? ' selected' : ''}>جميع الأقسام والمنافذ</option>
       ${sections.map(x => `<option value="${esc(x.id)}"${x.id === curSec ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}
     </select></div>` : ''}
-    <div class="search">${ICON.search}<input id="q" class="inp" type="search" placeholder="ابحث برقم الوصل أو المحتويات" autocomplete="off" enterkeyhint="search" aria-label="بحث"></div>
+    <div class="search">${ICON.search}<input id="q" class="inp" type="search" placeholder="ابحث برقم الوصل أو البوليصة أو المحتويات" autocomplete="off" enterkeyhint="search" aria-label="بحث"></div>
     <div id="res"></div>
     ${isAll() ? `<p class="mut sm center-t">أنت تستعرض جميع الأقسام. لإدخال طرد أو تسليمه، يرجى اختيار القسم من القائمة أعلاه.</p>` : `<div class="grid2 actions">
       <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
@@ -645,7 +653,7 @@ function renderList(kind) {
     const q = normAr($('#lq')?.value || '');
     const ts = t => (t?.toMillis ? t.toMillis() : 0);
     let list = parcels.filter(p => p.status === kind);
-    if (q) list = list.filter(p => normAr(p.receipt).includes(q) || normAr(p.contents).includes(q) || normAr(p.shelf).includes(q)
+    if (q) list = list.filter(p => normAr(p.receipt).includes(q) || normAr(p.waybill || '').includes(q) || normAr(p.contents).includes(q) || normAr(p.shelf).includes(q)
       || (!isIn && (normAr(p.deliveredTo).includes(q) || normAr(p.deliveryRef).includes(q))));
     list.sort(isIn
       ? (a, b) => (a.shelf || '').localeCompare(b.shelf || '', 'en', { numeric: true }) || ts(a.addedAt) - ts(b.addedAt)
@@ -950,7 +958,7 @@ async function inventoryPdf(list) {
 }
 
 function datedExportWorkbook(list) {
-  const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم'];
+  const headers = ['م', 'التاريخ', 'رقم الوصل', 'السنة', 'المحتويات', 'حجزه', 'التسليم', 'المستلم', 'الكتاب / الإشعار', 'سلّمه', 'تاريخ التسليم', 'بوليصة الشحن'];
   const rows = list.map((p, i) => {
     const out = p.status === 'out';
     const [d1] = parts(p.addedAt);
@@ -960,10 +968,10 @@ function datedExportWorkbook(list) {
     const [d2, , t2] = parts(p.deliveredAt);
     return [i + 1, d1, p.receipt || '', +p.year || p.year || '', p.contents, p.addedByName,
       out ? 'مسلّم' : 'محجوز',
-      out ? p.deliveredTo : '', out ? p.deliveryRef : '', out ? p.deliveredByName : '', out ? `${d2}  ${t2}` : ''];
+      out ? p.deliveredTo : '', out ? p.deliveryRef : '', out ? p.deliveredByName : '', out ? `${d2}  ${t2}` : '', p.waybill || ''];
   });
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  ws['!cols'] = [5, 12, 12, 8, 36, 20, 10, 22, 20, 20, 18].map(w => ({ wch: w }));
+  ws['!cols'] = [5, 12, 12, 8, 36, 20, 10, 22, 20, 20, 18, 22].map(w => ({ wch: w }));
   ws['!views'] = [{ RTL: true }];
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) };
   ws['!rows'] = [{ hpt: 26 }, ...rows.map(() => ({ hpt: 22 }))];
@@ -1090,20 +1098,16 @@ function openFlow(title, kind) {
   return {
     close, isCurrent,
     step(i, n) { if (!isCurrent()) return; ov.querySelector('.steps').textContent = `${i} من ${n}`; },
-    scan(prompt, validate, receiptMode = false) {
+    scan(prompt, validate, receiptMode = false, waybillMode = false) {
       return new Promise(async resolve => {
         if (!isCurrent()) return resolve(null);
         pending = resolve;
         body.innerHTML = (rcTag ? `<div class="rc-tag"><span>الوصل</span><b>${esc(rcTag)}</b></div>` : '') +
           `<p class="prompt">${esc(prompt)}</p><div id="reader" class="reader"></div><button type="button" class="flash-btn" id="flashBtn">🔦 تشغيل الفلاش</button>
-          <button type="button" class="man-btn" id="manBtn">⌨️ إدخال يدوي</button><div class="man-box" id="manBox" hidden style="flex-wrap:wrap">${receiptMode ? `<div class="grid2" style="width:100%"><div><label for="manYear">سنة الوصل</label><input id="manYear" class="inp" inputmode="numeric" maxlength="4" placeholder="2025"></div><div><label for="manInp">رقم الوصل</label>` : ''}<input id="manInp" class="inp" autocomplete="off" autocapitalize="characters" placeholder="${receiptMode ? 'P17' : 'رقم الرف مثل A1'}">${receiptMode ? `</div></div><p class="mut sm" style="width:100%;margin:0">كود المنفذ: <b dir="ltr">${esc(secPorts(curSec).join('، '))}</b></p>` : ''}<button type="button" id="manGo">تأكيد</button></div><div class="scanmsg"></div>
+          <button type="button" class="man-btn" id="manBtn">⌨️ إدخال يدوي</button><div class="man-box" id="manBox" hidden style="flex-wrap:wrap">${receiptMode ? `<div class="grid2" style="width:100%"><div><label for="manYear">سنة الوصل</label><input id="manYear" class="inp" inputmode="numeric" maxlength="4" placeholder="2025"></div><div><label for="manInp">رقم الوصل</label>` : ''}<input id="manInp" class="inp" autocomplete="off" autocapitalize="characters" placeholder="${receiptMode ? 'P17' : waybillMode ? 'رقم بوليصة الشحن' : 'رقم الرف مثل A1'}">${receiptMode ? `</div></div><p class="mut sm" style="width:100%;margin:0">كود المنفذ: <b dir="ltr">${esc(secPorts(curSec).join('، '))}</b></p>` : ''}<button type="button" id="manGo">تأكيد</button></div><div class="scanmsg"></div>
           <p class="mut sm center-t">ضع الباركود بالعرض، ميل الغلاف شوي لتخفيف الانعكاس وثبّت الجوال. جرّب إطفاء الفلاش إذا زاد اللمعان</p>`;
         let last = '', lastAt = 0, busy = false;
         try {
-          scanner = new Html5Qrcode('reader', {
-            formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
-            verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-          });
           let candidate = '', candidateCount = 0;
           const onText = async (text, manual) => {
             const now = Date.now();
@@ -1166,12 +1170,16 @@ function openFlow(title, kind) {
             if (receiptMode) {
               try { v = manualReceipt(body.querySelector('#manYear').value, v, secPorts(curSec)); }
               catch (e) { toast(e.message, 'err'); return; }
-            } else if (/^[A-Z]\d+$/.test(v)) v = 'SH-' + v; /* رقم رف مثل A1 */
+            } else if (!waybillMode && /^[A-Z]\d+$/.test(v)) v = 'SH-' + v; /* رقم رف مثل A1 */
             await onText(v, true);
           };
           body.querySelector('#manGo').onclick = manSubmit;
           manInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); manSubmit(); } });
 
+          scanner = new Html5Qrcode('reader', {
+            formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
+            verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+          });
           const startingScanner = scanner;
           scannerStart = startingScanner.start({ facingMode: 'environment' }, {
             fps: 12,
@@ -1305,7 +1313,7 @@ async function flowAdd() {
   if (!me) return;
   if (isAll()) return toast('يرجى اختيار القسم أولاً', 'err');
   const f = openFlow('إدخال وصل أمانة', 'add');
-  f.step(1, 3);
+  f.step(1, 4);
   const r = await f.scan('امسح باركود وصل الأمانة', async t => {
     const p = parseReceipt(t);
     if (!p) return { err: 'هذا ليس باركود وصل أمانة' };
@@ -1322,12 +1330,19 @@ async function flowAdd() {
   }, true);
   if (!r || !f.isCurrent()) return;
 
-  f.step(2, 3);
+  f.step(2, 4);
+  const waybill = await f.scan('امسح باركود بوليصة الشحن', value => {
+    const code = normalizeWaybill(value);
+    return validWaybill(code) ? { ok: code } : { err: 'أدخل رقم بوليصة صحيحاً، حتى 100 حرف ورقم' };
+  }, false, true);
+  if (!waybill || !f.isCurrent()) return;
+
+  f.step(3, 4);
   const fields = [{ key: 'contents', label: 'المحتويات', multi: true }, { key: 'parcelCount', label: 'عدد الطرود', number: true }];
   const fm = await f.form(fields, `وصل ${esc(r.receipt)} / ${esc(r.year)}`);
   if (!fm || !f.isCurrent()) return;
 
-  f.step(3, 3);
+  f.step(4, 4);
   const shelf = await f.scan('امسح باركود الرف', t => {
     const s = parseShelf(t);
     return s ? { ok: s } : { err: 'هذا ليس باركود رف' };
@@ -1341,13 +1356,13 @@ async function flowAdd() {
     const b = writeBatch(db), operation = uid();
     b.set(doc(db, 'parcels', r.docId), {
       section: curSec, receipt: r.receipt, year: r.year, port: r.port, raw: r.raw,
-      contents: fm.contents, parcelCount: +toEn(fm.parcelCount), shelf, status: 'in', operationId: operation,
+      waybill, contents: fm.contents, parcelCount: +toEn(fm.parcelCount), shelf, status: 'in', operationId: operation,
       addedBy: me.no, addedByUid: me.uid, addedByName: me.name, addedShift: lf.shift, addedAt: serverTimestamp()
     });
-    b.set(doc(db, 'logs', operation), { type: 'add', parcelId: r.docId, receipt: r.receipt, year: r.year, shelf, contents: fm.contents, parcelCount: +toEn(fm.parcelCount), ...lf });
+    b.set(doc(db, 'logs', operation), { type: 'add', parcelId: r.docId, receipt: r.receipt, year: r.year, shelf, waybill, contents: fm.contents, parcelCount: +toEn(fm.parcelCount), ...lf });
     await b.commit();
     if (!f.isCurrent()) return;
-    f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['المحتويات', fm.contents], ['عدد الطرود', +toEn(fm.parcelCount)], ['الرف', shelf]]);
+    f.result(true, 'تم إضافة الطرد إلى المستودع', [['الوصل', `${r.receipt} / ${r.year}`], ['بوليصة الشحن', waybill], ['المحتويات', fm.contents], ['عدد الطرود', +toEn(fm.parcelCount)], ['الرف', shelf]]);
   } catch (e) {
     console.error(e);
     f.result(false, 'لم يتم حفظ الطرد', [['السبب', errMsg(e)]]);
@@ -1411,11 +1426,50 @@ async function flowDeliver() {
   }
 }
 
+async function editParcelWaybill(p) {
+  if (!me?.isAdmin || !inSec(p) || !['in', 'out'].includes(p.status)) return;
+  const f = openFlow('تعديل بوليصة الشحن', 'add');
+  const waybill = await f.scan('امسح أو اكتب بوليصة الشحن', value => {
+    const code = normalizeWaybill(value);
+    return validWaybill(code) ? { ok: code } : { err: 'أدخل رقم بوليصة صحيحاً، حتى 100 حرف ورقم' };
+  }, false, true);
+  if (!waybill || !f.isCurrent()) return;
+  if (waybill === p.waybill) return f.result(true, 'بوليصة الشحن مسجلة بالفعل', [['البوليصة', waybill]]);
+  const fields = [{ key: 'reason', label: 'سبب التعديل' }];
+  fields.submit = 'حفظ بوليصة الشحن';
+  const form = await f.form(fields, `الوصل ${esc(p.receipt)} / ${esc(p.year)}<br>البوليصة الحالية: ${esc(p.waybill || 'غير مسجلة')}<br>البوليصة الجديدة: ${esc(waybill)}`);
+  if (!form || !f.isCurrent()) return;
+  if (form.reason.length > 1000) return f.result(false, 'سبب التعديل طويل جداً');
+  const operation = uid(), ref = doc(db, 'parcels', p.id);
+  const lf = { ...logFields(), section: p.section };
+  f.busy('جاري حفظ بوليصة الشحن…');
+  try {
+    await runTransaction(db, async tx => {
+      const snap = await tx.get(ref), before = snap.data();
+      if (!f.isCurrent() || !snap.exists() || before.status !== p.status ||
+          before.operationId !== p.operationId || (before.waybill || '') !== (p.waybill || '')) {
+        throw new Error('تغيّرت بيانات الطرد؛ أعد العملية');
+      }
+      const patch = { waybill, operationId: operation, changedAt: serverTimestamp(),
+        changedByUid: me.uid, changeReason: form.reason };
+      tx.update(ref, patch);
+      tx.set(doc(db, 'logs', operation), { ...lf, type: 'edit', parcelId: p.id,
+        receipt: before.receipt, year: before.year, contents: before.contents,
+        shelf: before.shelf, fromShelf: before.shelf, reason: form.reason,
+        before, after: { ...before, ...patch } });
+    });
+    if (f.isCurrent()) f.result(true, 'تم حفظ بوليصة الشحن', [['الوصل', p.receipt], ['البوليصة', waybill]]);
+  } catch (error) {
+    if (f.isCurrent()) f.result(false, 'لم يتم حفظ التعديل', [['السبب', errMsg(error)]]);
+  }
+}
+
 /* Each action checks fresh state and saves an immutable before/after audit atomically. */
 async function parcelAction(id, action) {
-  if (!me || !['move','return','delete','restore'].includes(action) || (action !== 'move' && !me.isAdmin)) return;
+  if (!me || !['edit','move','return','delete','restore'].includes(action) || (action !== 'move' && !me.isAdmin)) return;
   const p = parcels.find(x => x.id === id);
   if (!p || !inSec(p)) return;
+  if (action === 'edit') return editParcelWaybill(p);
   const f = openFlow(({move:'نقل الطرد',return:'إرجاع للمحجوزات',delete:'حذف طرد تجريبي',restore:'استرجاع الطرد'})[action], 'add');
   const section = p.section, actor = { ...me }, lf = { ...logFields(), section };
   let shelf = p.shelf;
@@ -1455,7 +1509,7 @@ function logCard(l) {
       <div class="meta">${esc(l.empName)}${secTag(l)}</div></div>`;
   }
   const add = l.type === 'add';
-  const title = ({add:'إدخال',deliver:'تسليم',move:'نقل رف',return:'إرجاع للمحجوزات',delete:'حذف تجريبي',restore:'استرجاع'})[l.type] || l.type;
+  const title = ({edit:'تعديل بوليصة',add:'إدخال',deliver:'تسليم',move:'نقل رف',return:'إرجاع للمحجوزات',delete:'حذف تجريبي',restore:'استرجاع'})[l.type] || l.type;
   return `<div class="lg"><div class="lg-h"><span class="tag ${add ? 't-add' : 't-del'}">${esc(title)}</span></div><div class="when">${fmt(l.at)}</div>
     <div class="rno">${esc(l.receipt)} <span class="yr">/ ${esc(l.year)}</span>${secTag(l)}</div>
     <div class="row"><span>الرف</span><b>${esc(l.shelf)}</b></div>
