@@ -265,6 +265,8 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .pc,.lg {margin-block:14px}
   .emp,.emp:first-child,.sec-row {margin-top:12px;padding:14px;border:1px solid var(--card-edge);border-radius:12px;background:var(--tile)}
   .card:has(#eList),.card:has(.sec-row) {background:var(--navy2)}
+  .login-page .card,.lg.login-event {background:#e1e2e4;border-color:#babcc1}
+  .lg.login-event.idle {border-inline-start:3px solid #ab5259}
   .login-page .card {padding:clamp(19px,5vw,28px)}
   .inp {border:1px solid #c9c4c0;border-radius:12px;background:#fff;color:var(--txt)}
   .search .inp {padding:14px 16px 14px 48px;font-size:1rem}
@@ -1638,7 +1640,7 @@ function logCard(l) {
   if (l.type === 'login') {
     const cur = l.sessionId === sessionId;
     const label = l.idle ? (cur ? 'دخول (الجلسة الحالية)' : 'دخول بدون عمليات') : 'دخول';
-    return `<div class="lg ${l.idle && !cur ? 'idle' : ''}"><div class="lg-h"><span class="tag ${l.idle && !cur ? 't-idle' : 't-login'}">${label}</span></div><div class="when">${fmt(l.at)}</div>
+    return `<div class="lg login-event ${l.idle && !cur ? 'idle' : ''}"><div class="lg-h"><span class="tag ${l.idle && !cur ? 't-idle' : 't-login'}">${label}</span></div><div class="when">${fmt(l.at)}</div>
       <div class="meta">${esc(l.empName)}${secTag(l)}</div></div>`;
   }
   const add = l.type === 'add';
