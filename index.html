@@ -239,41 +239,55 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
 
 @media screen {
   :root {
-    --navy:#0a2036; --navy2:#15324b; --line:#39556a; --mut:#bdcdda;
-    --gold:#e6c48b; --green:#217954; --orange:#ad531e;
-    --surface:linear-gradient(145deg,#1d3a52,#132d43);
+    --navy:#151e48; --navy2:#fffdfb; --txt:#171c38; --mut:#626473;
+    --line:#d9d4ce; --gold:#946e22; --green:#26704f; --orange:#935321;
+    --paper:#faf7f4; --tile:#f1ece8;
   }
-  body,.flow {background:radial-gradient(ellipse at top right,#1c405a 0%,transparent 55%),var(--navy)}
+  html,body,.flow {background:var(--paper);color:var(--txt)}
   body::before {display:none}
-  .wrap {max-width:640px}
-  .top,.flow .fh {background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 17px}
-  .hello {font-size:clamp(1.18rem,4vw,1.55rem);line-height:1.35;overflow-wrap:anywhere}
-  .home-header {border-top:3px solid var(--gold)}
-  .home-header .identity {display:flex;align-items:center;gap:12px;min-width:0}
-  .identity img {width:46px;height:46px;object-fit:contain;flex:none}
-  .home-header .ghost {flex:none}
-  .card,.pc:not(.declaration),.lg,.ctx {background:var(--surface);border-radius:18px}
-  .card,.wide-btn,.list-btn,.top,.pc,.lg {box-shadow:0 5px 18px #04132130}
-  .brand .seal {width:76px;height:76px}
+  .wrap {max-width:640px;padding-top:0}
+  .top,.brand,.flow .fh {background:var(--navy);color:#fff;border:0;border-radius:0 0 26px 26px}
+  .top,.brand {margin:0 -18px 18px;padding:19px 18px}
+  .top .ghost,.flow .x {color:#fff;border-color:#ffffff60}
+  .top .mut,.brand .t2,.flow .steps {color:#e6e5eb}
+  .top .hello {overflow-wrap:anywhere}
+  .home-header {position:relative;display:block;text-align:center;padding:21px 72px 18px}
+  .home-header .identity img {position:absolute;right:16px;top:17px;width:37px;height:37px;object-fit:contain}
+  .home-header #out {position:absolute;left:14px;top:18px;font-size:.84rem;padding:6px 10px}
+  .home-header .hello {font-size:clamp(1.55rem,5vw,2.25rem);font-weight:700;line-height:1.35}
+  .home-header .hello::after,.brand .t1::after {content:"";display:block;width:52px;height:3px;background:#ddba69;border-radius:3px;margin:9px auto}
+  .home-header .subtitle {font-weight:700;font-size:1.13rem;margin-bottom:2px}
   .login-page {max-width:490px}
-  .login-page .card {padding:clamp(19px,5vw,30px);border-top:3px solid var(--gold)}
-  .inp {border:1px solid #afc0cf;background:#f6f9fb}
-  .search .inp {border-radius:16px}
-  .actions .big-btn {border:1px solid #ffffff24;min-height:116px;gap:8px}
-  .big-btn.add {background:linear-gradient(145deg,#24875f,#176647)}
-  .big-btn.del {background:linear-gradient(145deg,#b96129,#954318)}
-  .big-btn svg {width:34px;height:34px}
-  .wide-btn {border-radius:14px;background:var(--surface);min-height:52px;padding:12px 16px}
-  .wide-btn.declaration {width:100%;background:#f5e6bf;color:#493518;border-color:#c8ad74}
-  .list-btn {background:#eaf1f4;color:#19354b;border-radius:15px}
-  .list-btn.in .lb-n {color:#176747}
-  .list-btn.out .lb-n {color:#994515}
-  .btn.gold,.tab.on,.chipb.on {background:#e6c48b;color:#302719}
-  .flow .fh {border-radius:0 0 18px 18px;border-bottom:3px solid var(--green)}
-  .flow.del .fh {border-bottom-color:var(--orange)}
+  .brand {padding:24px 18px 20px}
+  .brand .seal {width:58px;height:58px}
+  .card,.pc,.lg,.ctx {border:1px solid var(--line);border-radius:14px;background:var(--navy2);box-shadow:none}
+  .login-page .card {padding:clamp(19px,5vw,28px)}
+  .inp {border:1px solid #c9c4c0;border-radius:12px;background:#fff;color:var(--txt)}
+  .search .inp {padding:14px 16px 14px 48px;font-size:1rem}
+  .search svg {inset-inline-start:auto;left:15px;color:var(--navy)}
+  .actions {margin-top:14px;gap:10px}
+  .big-btn {min-height:110px;border-radius:15px;box-shadow:none;gap:6px;font-size:1.16rem}
+  .big-btn svg {width:38px;height:38px}
+  .big-btn.add {background:linear-gradient(140deg,#a88136,#946f25)}
+  .big-btn.del,.btn.gold,.chipb.on,.tab.on {background:var(--navy);color:white;border-color:var(--navy)}
+  .wide-btn {background:var(--navy2);border:1px solid var(--line);color:var(--txt);border-radius:12px;min-height:49px;margin-top:8px;padding:11px 15px;justify-content:flex-start}
+  .wide-btn svg {color:var(--gold)}
+  .home-page .wide-btn:not(.declaration)::after {content:"";width:8px;height:8px;border-left:2px solid #696776;border-bottom:2px solid #696776;transform:rotate(45deg);margin-inline-start:auto}
+  .wide-btn.declaration {width:100%;justify-content:center;border:1.5px solid var(--gold);color:var(--navy);background:transparent}
+  .wide-btn.adm {border-color:var(--line);color:var(--txt)}
+  .lists {gap:10px;margin:12px 0}
+  .list-btn.in,.list-btn.out {border:0;background:var(--tile);border-radius:13px;color:var(--txt);padding:12px}
+  .list-btn.in .lb-n,.list-btn.out .lb-n {color:var(--gold);font-size:2.15rem}
+  .flow .fh,.flow.del .fh {padding:15px 18px;border:0}
   .flow .fb {max-width:640px}
-  .ghost,.mini,.flash-btn,.man-btn {border-radius:12px}
-  .emp {padding-block:18px}
+  .pc.declaration {color:#573e12;background:#f7edcf;border-color:#d4bd87}
+  .b-in,.t-add,.rc-tag span,.xls-btn {color:#205c41}
+  .b-out,.t-del {color:#783b0d}
+  .mini.dng,.scanmsg,.t-idle {color:#982f36}
+  .sec-tag {background:#ece7db;color:#64512d}
+  .res-box .ico,#toast {color:white}
+  .flash-btn.on,.man-box button {color:#fff;background:#79591e}
+  button:enabled:active {filter:brightness(.95)}
 }
 </style>
 </head>
@@ -339,6 +353,9 @@ const currentView = () => {
 };
 
 const ICON = {
+  restore: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a8 8 0 1 1 1 8 M4 4v6h6"/></svg>',
+  sheet: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18H5z M5 9h14 M5 15h14 M11 9v12"/></svg>',
+  declaration: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a1 1 0 0 0-1 1v14h14V6a1 1 0 0 0-1-1h-3 M9 4h6v4H9z M9 14h6 M12 11v6"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
   add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 9v6M9 12h6"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>',
@@ -652,9 +669,9 @@ function runSearch(raw) {
 
 function renderHome() {
   startParcels();
-  view(`<div class="wrap">
+  view(`<div class="wrap home-page">
     <header class="top home-header">
-      <div class="identity"><img src="icon.png" alt=""><div><div class="hello">${esc(me.name)}</div><div class="mut sm">${me.isSuper ? 'المسؤول العام' : esc(secName(curSec))}، ${shiftOf()}${me.isAdmin && !me.isSuper ? '، أدمن' : ''}</div></div></div>
+      <div class="identity"><img src="icon.png" alt=""><div><div class="hello">${esc(me.name)}</div><div class="subtitle">إدارة مستودع المحجوزات</div><div class="mut sm">${me.isSuper ? 'المسؤول العام' : esc(secName(curSec))}، ${shiftOf()}${me.isAdmin && !me.isSuper ? '، أدمن' : ''}</div></div></div>
       <button id="out" class="ghost">خروج</button>
     </header>
     ${me.isSuper ? `<div class="sec-sw"><select id="secSw" class="inp" aria-label="القسم">
@@ -667,14 +684,14 @@ function renderHome() {
       <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
       <button id="bDel" class="big-btn del">${ICON.del}تسليم طرد</button>
     </div>`}
-    ${isAll() ? '' : '<button id="bDeclaration" class="wide-btn declaration">بيان مبسط</button>'}
-    <button id="bLog" class="wide-btn">${ICON.log}${me.isAdmin ? 'السجل' : 'سجل الطرود'}</button>
+    ${isAll() ? '' : `<button id="bDeclaration" class="wide-btn declaration">${ICON.declaration}بيان مبسط</button>`}
     <div class="grid2 lists">
       <button id="bIn" class="list-btn in"><span class="lb-t">المحجوزات</span><span class="lb-n" id="cntIn">${parcels.length ? parcels.filter(p => p.status === 'in').length : '…'}</span></button>
       <button id="bOut" class="list-btn out"><span class="lb-t">المسلّمة</span><span class="lb-n" id="cntOut">${parcels.length ? parcels.filter(p => p.status === 'out').length : '…'}</span></button>
     </div>
-    <button id="bExport" class="wide-btn">تصدير Excel</button>
-    ${me.isAdmin ? `<button id="bDeleted" class="wide-btn">الطرود المحذوفة · استرجاع</button><button id="bAdm" class="wide-btn adm">${ICON.adm}الإدارة</button>` : ''}
+    <button id="bLog" class="wide-btn">${ICON.log}${me.isAdmin ? 'السجل' : 'سجل الطرود'}</button>
+    <button id="bExport" class="wide-btn">${ICON.sheet}تصدير Excel</button>
+    ${me.isAdmin ? `<button id="bDeleted" class="wide-btn">${ICON.restore}الطرود المحذوفة · استرجاع</button><button id="bAdm" class="wide-btn adm">${ICON.adm}الإدارة</button>` : ''}
   </div>`);
   on('#out', 'click', logout);
   on('#secSw', 'change', e => { setSection(e.target.value); renderHome(); });
