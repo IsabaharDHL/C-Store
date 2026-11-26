@@ -265,6 +265,10 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .inp {border:1px solid #c9c4c0;border-radius:12px;background:#fff;color:var(--txt)}
   .search .inp {padding:14px 16px 14px 48px;font-size:1rem}
   .search svg {inset-inline-start:auto;left:15px;color:var(--navy)}
+  .search .inp::-webkit-search-cancel-button {display:none}
+  .search-clear {position:absolute;left:3px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;background:transparent;color:var(--navy);display:grid;place-items:center}
+  .search-clear span {display:grid;place-items:center;width:23px;height:23px;border:1.5px solid currentColor;border-radius:50%;font:600 19px/1 Arial,sans-serif}
+  .search .inp:placeholder-shown + .search-clear,.search:has(.inp:not(:placeholder-shown)) > svg {display:none}
   .actions {margin-top:14px;gap:10px}
   .big-btn {min-height:110px;border-radius:15px;box-shadow:none;gap:6px;font-size:1.16rem}
   .big-btn svg {width:38px;height:38px}
@@ -661,6 +665,17 @@ document.addEventListener('click', e => {
   if (b) parcelAction(b.dataset.parcel, b.dataset.op);
 });
 
+const clearSearchButton = '<button type="button" class="search-clear" aria-label="مسح البحث"><span aria-hidden="true">×</span></button>';
+function bindSearch(id, update) {
+  const input = $(id);
+  input.addEventListener('input', update);
+  input.nextElementSibling.addEventListener('click', () => {
+    input.value = '';
+    input.focus();
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+}
+
 function runSearch(raw) {
   const res = $('#res'); if (!res) return;
   const q = normAr(raw);
@@ -683,7 +698,7 @@ function renderHome() {
       <option value="all"${isAll() ? ' selected' : ''}>جميع الأقسام والمنافذ</option>
       ${sections.map(x => `<option value="${esc(x.id)}"${x.id === curSec ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}
     </select></div>` : ''}
-    <div class="search">${ICON.search}<input id="q" class="inp" type="search" placeholder="ابحث برقم الوصل أو البوليصة أو المحتويات" autocomplete="off" enterkeyhint="search" aria-label="بحث"></div>
+    <div class="search">${ICON.search}<input id="q" class="inp" type="search" placeholder="ابحث برقم الوصل أو البوليصة أو المحتويات" autocomplete="off" enterkeyhint="search" aria-label="بحث">${clearSearchButton}</div>
     <div id="res"></div>
     ${isAll() ? `<p class="mut sm center-t">أنت تستعرض جميع الأقسام. لإدخال طرد أو تسليمه، يرجى اختيار القسم من القائمة أعلاه.</p>` : `<div class="grid2 actions">
       <button id="bAdd" class="big-btn add">${ICON.add}إدخال وصل أمانة</button>
@@ -700,7 +715,7 @@ function renderHome() {
   </div>`);
   on('#out', 'click', logout);
   on('#secSw', 'change', e => { setSection(e.target.value); renderHome(); });
-  on('#q', 'input', e => runSearch(e.target.value));
+  bindSearch('#q', e => runSearch(e.target.value));
   on('#bAdd', 'click', flowAdd);
   on('#bDel', 'click', flowDeliver);
   on('#bDeclaration', 'click', flowDeclaration);
@@ -719,7 +734,7 @@ function renderList(kind) {
   const isIn = kind === 'in';
   view(`<div class="wrap">
     <header class="top"><button id="back" class="ghost">رجوع</button><div class="hello">${kind === 'deleted' ? 'الطرود المحذوفة' : isIn ? 'المحجوزات' : 'المسلّمة'}</div><span style="width:60px"></span></header>
-    <div class="search">${ICON.search}<input id="lq" class="inp" type="search" placeholder="فلترة برقم الوصل أو المحتويات أو الرف" autocomplete="off" aria-label="فلترة"></div>
+    <div class="search">${ICON.search}<input id="lq" class="inp" type="search" placeholder="فلترة برقم الوصل أو المحتويات أو الرف" autocomplete="off" aria-label="فلترة">${clearSearchButton}</div>
     <div id="plist"></div></div>`);
   on('#back', 'click', () => { drawList = null; renderHome(); });
   drawList = () => {
@@ -734,7 +749,7 @@ function renderList(kind) {
       : (a, b) => ts(b.deliveredAt) - ts(a.deliveredAt));
     box.innerHTML = `<div class="res-h">${list.length} طرد</div>` + (list.length ? list.map(parcelCard).join('') : '<p class="mut center-t">لا توجد طرود</p>');
   };
-  on('#lq', 'input', drawList);
+  bindSearch('#lq', drawList);
   drawList();
 }
 
