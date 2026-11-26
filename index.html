@@ -241,7 +241,7 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   :root {
     --navy:#151e48; --navy2:#fffdfb; --txt:#171c38; --mut:#626473;
     --line:#d9d4ce; --gold:#946e22; --green:#26704f; --orange:#935321;
-    --paper:#faf7f4; --tile:#f1ece8;
+    --paper:#faf7f4; --tile:#eeeded; --card-edge:#d3d1cf;
   }
   html,body,.flow {background:var(--paper);color:var(--txt)}
   body::before {display:none}
@@ -260,7 +260,10 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .login-page {max-width:490px}
   .brand {padding:24px 18px 20px}
   .brand .seal {width:58px;height:58px}
-  .card,.pc,.lg,.ctx {border:1px solid var(--line);border-radius:14px;background:var(--navy2);box-shadow:none}
+  .card,.pc,.lg,.ctx {border:1px solid var(--card-edge);border-radius:14px;background:var(--tile);box-shadow:none}
+  .pc,.lg {margin-block:14px}
+  .emp,.emp:first-child,.sec-row {margin-top:12px;padding:14px;border:1px solid var(--card-edge);border-radius:12px;background:var(--tile)}
+  .card:has(#eList),.card:has(.sec-row) {background:var(--navy2)}
   .login-page .card {padding:clamp(19px,5vw,28px)}
   .inp {border:1px solid #c9c4c0;border-radius:12px;background:#fff;color:var(--txt)}
   .search .inp {padding:14px 16px 14px 48px;font-size:1rem}
@@ -279,17 +282,17 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .home-page .wide-btn:not(.declaration)::after {content:"";width:8px;height:8px;border-left:2px solid #696776;border-bottom:2px solid #696776;transform:rotate(45deg);margin-inline-start:auto}
   .wide-btn.declaration {width:100%;justify-content:center;border:1.5px solid var(--gold);color:var(--navy);background:transparent}
   .wide-btn.adm {border-color:var(--line);color:var(--txt)}
-  .pc.in,.pc.out {background:#f0eeec;margin:14px 0;border-radius:14px;padding:16px}
+  .pc.in,.pc.out {background:var(--tile);margin:14px 0;border-radius:14px;padding:16px}
   .parcel-actions {display:flex;gap:7px;margin-top:14px}
   .parcel-actions .mini {flex:1;min-width:0;min-height:42px;font-weight:700;background:white}
   .parcel-actions [data-op="edit"] {background:#f6d665;color:#382d0b;border-color:#d3b14d}
   .parcel-actions [data-op="delete"] {background:#b22e39;color:white;border-color:#a02b35}
   .lists {gap:10px;margin:12px 0}
-  .list-btn.in,.list-btn.out {border:0;background:var(--tile);border-radius:13px;color:var(--txt);padding:12px}
+  .list-btn.in,.list-btn.out {border:1px solid var(--card-edge);background:var(--tile);border-radius:13px;color:var(--txt);padding:12px}
   .list-btn.in .lb-n,.list-btn.out .lb-n {color:var(--gold);font-size:2.15rem}
   .flow .fh,.flow.del .fh {padding:15px 18px;border:0}
   .flow .fb {max-width:640px}
-  .pc.declaration {color:#573e12;background:#f7edcf;border-color:#d4bd87}
+  .pc.declaration {color:var(--txt);background:var(--tile);border-inline-start:5px solid var(--gold)}
   .b-in,.t-add,.rc-tag span,.xls-btn {color:#205c41}
   .b-out,.t-del {color:#783b0d}
   .mini.dng,.scanmsg,.t-idle {color:#982f36}
