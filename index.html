@@ -236,6 +236,45 @@ footer.credit{position:relative;z-index:1;text-align:center;color:var(--mut);fon
 button{transition:scale .16s cubic-bezier(.2,.8,.2,1),filter .16s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s}
 button:enabled:active{scale:.96;filter:brightness(1.12)}
 @media(prefers-reduced-motion:reduce){button:enabled:active{scale:1;filter:brightness(1.12)}}
+
+@media screen {
+  :root {
+    --navy:#0a2036; --navy2:#15324b; --line:#39556a; --mut:#bdcdda;
+    --gold:#e6c48b; --green:#217954; --orange:#ad531e;
+    --surface:linear-gradient(145deg,#1d3a52,#132d43);
+  }
+  body,.flow {background:radial-gradient(ellipse at top right,#1c405a 0%,transparent 55%),var(--navy)}
+  body::before {display:none}
+  .wrap {max-width:640px}
+  .top,.flow .fh {background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 17px}
+  .hello {font-size:clamp(1.18rem,4vw,1.55rem);line-height:1.35;overflow-wrap:anywhere}
+  .home-header {border-top:3px solid var(--gold)}
+  .home-header .identity {display:flex;align-items:center;gap:12px;min-width:0}
+  .identity img {width:46px;height:46px;object-fit:contain;flex:none}
+  .home-header .ghost {flex:none}
+  .card,.pc:not(.declaration),.lg,.ctx {background:var(--surface);border-radius:18px}
+  .card,.wide-btn,.list-btn,.top,.pc,.lg {box-shadow:0 5px 18px #04132130}
+  .brand .seal {width:76px;height:76px}
+  .login-page {max-width:490px}
+  .login-page .card {padding:clamp(19px,5vw,30px);border-top:3px solid var(--gold)}
+  .inp {border:1px solid #afc0cf;background:#f6f9fb}
+  .search .inp {border-radius:16px}
+  .actions .big-btn {border:1px solid #ffffff24;min-height:116px;gap:8px}
+  .big-btn.add {background:linear-gradient(145deg,#24875f,#176647)}
+  .big-btn.del {background:linear-gradient(145deg,#b96129,#954318)}
+  .big-btn svg {width:34px;height:34px}
+  .wide-btn {border-radius:14px;background:var(--surface);min-height:52px;padding:12px 16px}
+  .wide-btn.declaration {width:100%;background:#f5e6bf;color:#493518;border-color:#c8ad74}
+  .list-btn {background:#eaf1f4;color:#19354b;border-radius:15px}
+  .list-btn.in .lb-n {color:#176747}
+  .list-btn.out .lb-n {color:#994515}
+  .btn.gold,.tab.on,.chipb.on {background:#e6c48b;color:#302719}
+  .flow .fh {border-radius:0 0 18px 18px;border-bottom:3px solid var(--green)}
+  .flow.del .fh {border-bottom-color:var(--orange)}
+  .flow .fb {max-width:640px}
+  .ghost,.mini,.flash-btn,.man-btn {border-radius:12px}
+  .emp {padding-block:18px}
+}
 </style>
 </head>
 <body>
@@ -488,49 +527,62 @@ function renderBoot(msg = 'جاري الاتصال…') {
 }
 
 function renderLogin() {
-  view(`<div class="wrap">${brand()}
-    <div class="card"><h2>تسجيل الدخول</h2>
+  view(`<div class="wrap login-page">${brand()}
+    <form id="loginForm" class="card"><h2>تسجيل الدخول</h2>
       <label for="lNo">الرقم الشخصي</label>
-      <input id="lNo" class="inp" inputmode="numeric" autocomplete="username" enterkeyhint="next">
-      <div id="passwordStep" hidden></div>
-      <button id="lGo" class="btn gold">متابعة</button>
+      <input id="lNo" class="inp" inputmode="numeric" autocomplete="username" enterkeyhint="next" required>
+      <label for="lPassword">كلمة المرور</label>
+      <input id="lPassword" class="inp" type="password" autocomplete="current-password" enterkeyhint="go" required>
+      <div id="passwordStep" hidden>
+        <label for="lConfirm">تأكيد كلمة المرور الجديدة</label>
+        <input id="lConfirm" class="inp" type="password" autocomplete="new-password" enterkeyhint="go" disabled>
+      </div>
+      <button id="lGo" class="btn gold" type="submit">دخول</button>
       <p class="mut sm">إذا نسيت كلمة المرور، اطلب من الأدمن إعادة تعيين الدخول. تبقى حركاتك السابقة محفوظة.</p>
-    </div></div>`);
-  let busy = false, route = null;
-  const resetStep = () => { route = null; $('#passwordStep').hidden = true; $('#passwordStep').innerHTML = ''; $('#lGo').textContent = 'متابعة'; };
-  const go = async () => {
-    if (busy) return;
-    const no = digits(val('#lNo'));
+    </form></div>`);
+  const form = $('#loginForm');
+  const number = $('#lNo'), password = $('#lPassword'), confirm = $('#lConfirm'), button = $('#lGo');
+  let pendingNumber = '';
+  number.addEventListener('input', () => {
+    pendingNumber = '';
+    confirm.value = '';
+    confirm.disabled = true;
+    $('#passwordStep').hidden = true;
+    password.autocomplete = 'current-password';
+    button.textContent = 'دخول';
+  });
+  number.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !password.value) { e.preventDefault(); password.focus(); }
+  });
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (button.disabled) return;
+    const no = digits(number.value);
     if (!no) return toast('يرجى إدخال الرقم الشخصي', 'err');
-    busy = true; const button = $('#lGo'); if (button) button.disabled = true; if ($('#lNo')) $('#lNo').disabled = true;
+    button.disabled = true;
+    number.readOnly = password.readOnly = confirm.readOnly = true;
     try {
-      if (!route) {
-        route = await authFlow.readRoute(no);
-        if (!route || !route.enabled) { route = null; throw new Error('الرقم الشخصي غير مسجل أو تم تعطيله. تواصل مع الأدمن.'); }
-        const first = route.state === 'pending';
+      const route = await authFlow.readRoute(no);
+      if (!route || !route.enabled) throw new Error('الرقم الشخصي غير مسجل أو تم تعطيله. تواصل مع الأدمن.');
+      const first = route.state === 'pending';
+      if (first && pendingNumber !== no) {
+        pendingNumber = no;
         $('#passwordStep').hidden = false;
-        $('#passwordStep').innerHTML = `<p class="mut sm">${first ? 'أنشئ كلمة مرور لحسابك. ستستخدمها مع رقمك الشخصي على أي جهاز.' : 'أدخل كلمة المرور.'}</p>
-          <label for="lPassword">${first ? 'كلمة مرور جديدة' : 'كلمة المرور'}</label>
-          <input id="lPassword" class="inp" type="password" minlength="8" autocomplete="${first ? 'new-password' : 'current-password'}" enterkeyhint="${first ? 'next' : 'go'}">
-          ${first ? '<label for="lConfirm">تأكيد كلمة المرور</label><input id="lConfirm" class="inp" type="password" minlength="8" autocomplete="new-password" enterkeyhint="go">' : ''}`;
-        button.textContent = first ? 'إنشاء كلمة المرور والدخول' : 'دخول';
-        on('#lPassword', 'keydown', e => { if (e.key === 'Enter') go(); });
-        on('#lConfirm', 'keydown', e => { if (e.key === 'Enter') go(); });
-        $('#lPassword').focus();
-      } else {
-        const password = $('#lPassword')?.value || '';
-        const first = route.state === 'pending';
-        if (!password) throw new Error('أدخل كلمة المرور.');
-        if (first && password.length < 8) throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
-        if (first && password !== ($('#lConfirm')?.value || '')) throw new Error('كلمتا المرور غير متطابقتين.');
-        await doLogin(route.employeeId, password, first);
+        confirm.disabled = false;
+        password.autocomplete = 'new-password';
+        button.textContent = 'إنشاء كلمة المرور والدخول';
+        confirm.focus();
+        return;
       }
-    } catch (e) { fail(e); }
-    finally { busy = false; if ($('#lGo')) $('#lGo').disabled = false; if ($('#lNo')) $('#lNo').disabled = false; }
-  };
-  on('#lNo', 'input', resetStep);
-  on('#lGo', 'click', go);
-  on('#lNo', 'keydown', e => { if (e.key === 'Enter') go(); });
+      if (first && password.value.length < 8) throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+      if (first && password.value !== confirm.value) throw new Error('كلمتا المرور غير متطابقتين.');
+      await doLogin(route.employeeId, password.value, first);
+    } catch (error) { fail(error); }
+    finally {
+      number.readOnly = password.readOnly = confirm.readOnly = false;
+      button.disabled = false;
+    }
+  });
 }
 
 function startParcels() {
@@ -601,8 +653,8 @@ function runSearch(raw) {
 function renderHome() {
   startParcels();
   view(`<div class="wrap">
-    <header class="top">
-      <div><div class="hello">${esc(me.name)}</div><div class="mut sm">${me.isSuper ? 'المسؤول العام' : esc(secName(curSec))}، ${shiftOf()}${me.isAdmin && !me.isSuper ? '، أدمن' : ''}</div></div>
+    <header class="top home-header">
+      <div class="identity"><img src="icon.png" alt=""><div><div class="hello">${esc(me.name)}</div><div class="mut sm">${me.isSuper ? 'المسؤول العام' : esc(secName(curSec))}، ${shiftOf()}${me.isAdmin && !me.isSuper ? '، أدمن' : ''}</div></div></div>
       <button id="out" class="ghost">خروج</button>
     </header>
     ${me.isSuper ? `<div class="sec-sw"><select id="secSw" class="inp" aria-label="القسم">
