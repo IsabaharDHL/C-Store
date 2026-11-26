@@ -275,6 +275,11 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .home-page .wide-btn:not(.declaration)::after {content:"";width:8px;height:8px;border-left:2px solid #696776;border-bottom:2px solid #696776;transform:rotate(45deg);margin-inline-start:auto}
   .wide-btn.declaration {width:100%;justify-content:center;border:1.5px solid var(--gold);color:var(--navy);background:transparent}
   .wide-btn.adm {border-color:var(--line);color:var(--txt)}
+  .pc.in,.pc.out {background:#f0eeec;margin:14px 0;border-radius:14px;padding:16px}
+  .parcel-actions {display:flex;gap:7px;margin-top:14px}
+  .parcel-actions .mini {flex:1;min-width:0;min-height:42px;font-weight:700;background:white}
+  .parcel-actions [data-op="edit"] {background:#f6d665;color:#382d0b;border-color:#d3b14d}
+  .parcel-actions [data-op="delete"] {background:#b22e39;color:white;border-color:#a02b35}
   .lists {gap:10px;margin:12px 0}
   .list-btn.in,.list-btn.out {border:0;background:var(--tile);border-radius:13px;color:var(--txt);padding:12px}
   .list-btn.in .lb-n,.list-btn.out .lb-n {color:var(--gold);font-size:2.15rem}
@@ -648,7 +653,7 @@ function parcelCard(p) {
          <div class="row"><span>كان على الرف</span><b>${esc(p.shelf)}</b></div>
          <div class="meta">سلّمه: ${esc(p.deliveredByName)}، ${fmt(p.deliveredAt)}</div>`}
     ${p.status === 'deleted' ? `<div class="row"><span>سبب الحذف</span><b>${esc(p.changeReason)}</b></div>` : ''}
-    <div class="grid2">${actions.map(a => `<button class="mini" data-parcel="${esc(p.id)}" data-op="${a}">${({edit:'تعديل بوليصة الشحن',move:'نقل إلى رف',delete:'حذف طرد تجريبي',return:'إرجاع للمحجوزات',restore:'استرجاع الطرد'})[a]}</button>`).join('')}</div>
+    <div class="parcel-actions">${actions.map(a => `<button class="mini" data-parcel="${esc(p.id)}" data-op="${a}">${({edit:'تعديل',move:'نقل',delete:'حذف',return:'إرجاع للمحجوزات',restore:'استرجاع الطرد'})[a]}</button>`).join('')}</div>
   </div>`;
 }
 document.addEventListener('click', e => {
