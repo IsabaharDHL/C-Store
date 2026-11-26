@@ -461,7 +461,7 @@ const secName = id => id === 'all' ? 'جميع الأقسام' : ((sections.find
 const inSec = x => curSec === 'all' || secOf(x) === curSec;
 const isAll = () => curSec === 'all';
 /* رقم وثيقة الطرد: DHL يبقى مثل ما هو عشان البيانات القديمة، والباقي يسبقه اسم القسم */
-const pid = r => curSec === 'dhl' ? r.id : `${curSec}_${r.id}`;
+const pid = (r, section = curSec) => section === 'dhl' ? r.id : `${section}_${r.id}`;
 /* أكواد المنافذ: كل قسم يقبل وصولات منفذه بس. القسم اللي ما له كود يقبل الكل */
 const secPorts = id => ((sections.find(x => x.id === id) || {}).ports || []);
 const parsePorts = str => [...new Set((toEn(str || '').match(/\d{4}/g) || []))];
@@ -1323,13 +1323,17 @@ function openFlow(title, kind) {
         if (!isCurrent()) return resolve(null);
         pending = resolve;
         body.innerHTML = (ctx ? `<div class="ctx">${ctx}</div>` : '') + fields.map(f =>
-          `<label for="f_${f.key}">${esc(f.label)} <span class="req">*</span></label>` +
+          `<label for="f_${f.key}">${esc(f.label)} ${f.optional ? '' : '<span class="req">*</span>'}</label>` +
           (f.multi ? `<textarea id="f_${f.key}" class="inp" rows="3"></textarea>` : `<input id="f_${f.key}" class="inp" autocomplete="off" ${f.number ? 'inputmode="numeric" value="1"' : ''}>`)
         ).join('') + `<button id="fNext" class="btn gold" disabled>${esc(fields.submit || 'التالي')}</button>`;
         const els = fields.map(f => body.querySelector('#f_' + f.key));
         const btn = body.querySelector('#fNext');
-        const chk = () => { btn.disabled = !els.every((e, i) => fields[i].number ? /^[0-9]+$/.test(toEn(e.value).trim()) && +toEn(e.value) >= 1 && +toEn(e.value) <= 10000 : e.value.trim()); };
-        els.forEach(e => e.addEventListener('input', chk));
+        const chk = () => { btn.disabled = !els.every((e, i) => fields[i].number ? /^[0-9]+$/.test(toEn(e.value).trim()) && +toEn(e.value) >= 1 && +toEn(e.value) <= 10000 : fields[i].optional || e.value.trim()); };
+        els.forEach((el, i) => {
+          if (fields[i].value != null) el.value = fields[i].value;
+          el.addEventListener('input', chk);
+        });
+        chk();
         setTimeout(() => els[0]?.focus(), 150);
         btn.onclick = () => {
           if (btn.disabled || !isCurrent()) return;
@@ -1400,6 +1404,8 @@ async function flowAdd() {
         ? { alert: 'الطرد مسجل', err: `الوصل ${p.receipt} / ${p.year} موجود على الرف ${d.shelf}` }
         : { alert: 'مسلّم بالفعل', err: `الوصل ${p.receipt} / ${p.year} سُلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
     }
+    if ((await getDocFromServer(doc(db, 'receiptKeys', p.docId))).exists())
+      return {err:'رقم الوصل مرتبط بطرد مسجل'};
     return { ok: p };
   }, true);
   if (!r || !f.isCurrent()) return;
@@ -1454,11 +1460,17 @@ async function flowDeliver() {
     const x = parseReceipt(t);
     if (!x) return { err: 'هذا ليس باركود وصل أمانة' };
     const pe = portErr(x); if (pe) return { alert: 'منفذ غير مطابق', err: pe };
-    const s = await getDocFromServer(doc(db, 'parcels', pid(x)));
+    const key = pid(x);
+    let s = await getDocFromServer(doc(db, 'parcels', key));
+    if (!s.exists()) {
+      const alias = await getDocFromServer(doc(db, 'receiptKeys', key));
+      if (alias.exists()) s = await getDocFromServer(doc(db, 'parcels', alias.data().parcelId));
+    }
     if (!s.exists()) return { err: `الوصل ${x.receipt} / ${x.year} غير مسجل في مستودع ${secName(curSec)}` };
     const d = s.data();
+    if (d.receipt !== x.receipt || d.year !== x.year) return {err:'تم تصحيح رقم الوصل؛ استخدم الوصل الحالي'};
     if (d.status !== 'in') return { alert: 'مسلّم بالفعل', err: `الوصل ${x.receipt} / ${x.year} سُلّم إلى ${d.deliveredTo}، ${plainWhen(d.deliveredAt)}` };
-    p = { id: pid(x), ...d };
+    p = { id: s.id, ...d };
     return { ok: x };
   }, true);
   if (!r || !f.isCurrent()) return;
@@ -1485,7 +1497,7 @@ async function flowDeliver() {
     const operation = uid();
     await runTransaction(db, async b => {
     const fresh = await b.get(doc(db, 'parcels', p.id));
-    if (!f.isCurrent() || fresh.data()?.status !== 'in' || fresh.data()?.shelf !== shelf) throw new Error('تغيّرت بيانات الطرد؛ أعد العملية');
+    if (!f.isCurrent() || fresh.data()?.status !== 'in' || fresh.data()?.shelf !== shelf || fresh.data()?.operationId !== p.operationId) throw new Error('تغيّرت بيانات الطرد؛ أعد العملية');
     b.update(doc(db, 'parcels', p.id), {
       status: 'out', operationId: operation, deliveredTo: fm.to, deliveryRef: fm.ref,
       deliveredBy: me.no, deliveredByUid: me.uid, deliveredByName: me.name, deliveredShift: lf.shift, deliveredAt: serverTimestamp()
@@ -1500,23 +1512,44 @@ async function flowDeliver() {
   }
 }
 
-async function editParcelWaybill(p) {
+async function editParcel(p) {
   if (!me?.isAdmin || !inSec(p) || !['in', 'out'].includes(p.status)) return;
-  const f = openFlow('تعديل بوليصة الشحن', 'add');
-  const waybill = await f.scan('امسح أو اكتب بوليصة الشحن', value => {
-    const code = normalizeWaybill(value);
-    return validWaybill(code) ? { ok: code } : { err: 'أدخل رقم بوليصة صحيحاً، حتى 100 حرف ورقم' };
-  }, false, true);
-  if (!waybill || !f.isCurrent()) return;
-  if (waybill === p.waybill) return f.result(true, 'بوليصة الشحن مسجلة بالفعل', [['البوليصة', waybill]]);
-  const fields = [{ key: 'reason', label: 'سبب التعديل' }];
-  fields.submit = 'حفظ بوليصة الشحن';
-  const form = await f.form(fields, `الوصل ${esc(p.receipt)} / ${esc(p.year)}<br>البوليصة الحالية: ${esc(p.waybill || 'غير مسجلة')}<br>البوليصة الجديدة: ${esc(waybill)}`);
+  const f = openFlow('تعديل بيانات الطرد', 'add');
+  const fields = [
+    {key:'receipt',label:'رقم وصل الأمانة',value:p.receipt},
+    {key:'year',label:'السنة',value:p.year},
+    {key:'waybill',label:'بوليصة الشحن',value:p.waybill,optional:!p.waybill},
+    {key:'shelf',label:'الرف',value:p.shelf},
+    {key:'contents',label:'المحتويات',value:p.contents,multi:true},
+    {key:'parcelCount',label:'عدد الطرود',value:parcelCount(p),number:true}
+  ];
+  if (p.status === 'out') fields.push(
+    {key:'deliveredTo',label:'المستلم',value:p.deliveredTo},
+    {key:'deliveryRef',label:'الكتاب / الإشعار',value:p.deliveryRef}
+  );
+  fields.push({key:'reason',label:'سبب التعديل'});
+  fields.submit = 'حفظ التعديل';
+  const form = await f.form(fields);
   if (!form || !f.isCurrent()) return;
-  if (form.reason.length > 1000) return f.result(false, 'سبب التعديل طويل جداً');
+  const receipt = toEn(form.receipt).toUpperCase(), year = toEn(form.year);
+  const waybill = normalizeWaybill(form.waybill);
+  const shelf = parseShelf(form.shelf) || parseShelf('SH-' + form.shelf);
+  if (!/^[A-Z]+[0-9]+$/.test(receipt) || receipt.length > 100 || !/^20[0-9]{2}$/.test(year))
+    return f.result(false,'تحقق من رقم الوصل والسنة');
+  if (!shelf || ((waybill || p.waybill) && !validWaybill(waybill))) return f.result(false,'تحقق من الرف ورقم البوليصة');
+  if (form.reason.length > 1000 || form.contents.length > 20000 || form.deliveredTo?.length > 1000 || form.deliveryRef?.length > 1000)
+    return f.result(false,'أحد الحقول أطول من الحد المسموح');
+  const changes = {receipt,year,shelf,contents:form.contents,parcelCount:Number(toEn(form.parcelCount))};
+  if (waybill) changes.waybill = waybill;
+  if (p.status === 'out') Object.assign(changes,{deliveredTo:form.deliveredTo,deliveryRef:form.deliveryRef});
+  const renamed = receipt !== p.receipt || year !== p.year;
+  if (renamed) changes.raw = '0' + year + p.port + receipt;
+  if (Object.entries(changes).every(([k,v]) => v === (k === 'parcelCount' ? parcelCount(p) : p[k])))
+    return f.result(true,'لا توجد تغييرات');
+  const key = pid({id:year + '_' + receipt}, p.section);
   const operation = uid(), ref = doc(db, 'parcels', p.id);
   const lf = { ...logFields(), section: p.section };
-  f.busy('جاري حفظ بوليصة الشحن…');
+  f.busy('جاري حفظ بيانات الطرد…');
   try {
     await runTransaction(db, async tx => {
       const snap = await tx.get(ref), before = snap.data();
@@ -1524,15 +1557,22 @@ async function editParcelWaybill(p) {
           before.operationId !== p.operationId || (before.waybill || '') !== (p.waybill || '')) {
         throw new Error('تغيّرت بيانات الطرد؛ أعد العملية');
       }
-      const patch = { waybill, operationId: operation, changedAt: serverTimestamp(),
+      if (renamed && key !== p.id) {
+        const aliasRef = doc(db,'receiptKeys',key);
+        const target = await tx.get(doc(db,'parcels',key)), alias = await tx.get(aliasRef);
+        if (target.exists() || (alias.exists() && alias.data().parcelId !== p.id))
+          throw new Error('رقم الوصل مستخدم لطرد آخر');
+        if (!alias.exists()) tx.set(aliasRef,{section:p.section,parcelId:p.id});
+      }
+      const patch = { ...changes, operationId: operation, changedAt: serverTimestamp(),
         changedByUid: me.uid, changeReason: form.reason };
       tx.update(ref, patch);
       tx.set(doc(db, 'logs', operation), { ...lf, type: 'edit', parcelId: p.id,
-        receipt: before.receipt, year: before.year, contents: before.contents,
-        shelf: before.shelf, fromShelf: before.shelf, reason: form.reason,
+        receipt, year, contents: changes.contents,
+        shelf, fromShelf: before.shelf, reason: form.reason,
         before, after: { ...before, ...patch } });
     });
-    if (f.isCurrent()) f.result(true, 'تم حفظ بوليصة الشحن', [['الوصل', p.receipt], ['البوليصة', waybill]]);
+    if (f.isCurrent()) f.result(true, 'تم حفظ بيانات الطرد', [['الوصل', receipt], ['البوليصة', waybill]]);
   } catch (error) {
     if (f.isCurrent()) f.result(false, 'لم يتم حفظ التعديل', [['السبب', errMsg(error)]]);
   }
@@ -1543,7 +1583,7 @@ async function parcelAction(id, action) {
   if (!me || !['edit','move','return','delete','restore'].includes(action) || (action !== 'move' && !me.isAdmin)) return;
   const p = parcels.find(x => x.id === id);
   if (!p || !inSec(p)) return;
-  if (action === 'edit') return editParcelWaybill(p);
+  if (action === 'edit') return editParcel(p);
   const f = openFlow(({move:'نقل الطرد',return:'إرجاع للمحجوزات',delete:'حذف طرد تجريبي',restore:'استرجاع الطرد'})[action], 'add');
   const section = p.section, actor = { ...me }, lf = { ...logFields(), section };
   let shelf = p.shelf;
@@ -1583,7 +1623,7 @@ function logCard(l) {
       <div class="meta">${esc(l.empName)}${secTag(l)}</div></div>`;
   }
   const add = l.type === 'add';
-  const title = ({edit:'تعديل بوليصة',add:'إدخال',deliver:'تسليم',move:'نقل رف',return:'إرجاع للمحجوزات',delete:'حذف تجريبي',restore:'استرجاع'})[l.type] || l.type;
+  const title = ({edit:'تعديل بيانات الطرد',add:'إدخال',deliver:'تسليم',move:'نقل رف',return:'إرجاع للمحجوزات',delete:'حذف تجريبي',restore:'استرجاع'})[l.type] || l.type;
   return `<div class="lg"><div class="lg-h"><span class="tag ${add ? 't-add' : 't-del'}">${esc(title)}</span></div><div class="when">${fmt(l.at)}</div>
     <div class="rno">${esc(l.receipt)} <span class="yr">/ ${esc(l.year)}</span>${secTag(l)}</div>
     <div class="row"><span>الرف</span><b>${esc(l.shelf)}</b></div>
