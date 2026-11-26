@@ -272,6 +272,10 @@ button:enabled:active{scale:.96;filter:brightness(1.12)}
   .search .inp {padding:14px 16px 14px 48px;font-size:1rem}
   .search svg {inset-inline-start:auto;left:15px;color:var(--navy)}
   .search .inp::-webkit-search-cancel-button {display:none}
+  .scan-field {position:relative}
+  .scan-field .inp {padding-left:50px}
+  .inline-scan {position:absolute;left:3px;top:0;bottom:0;width:44px;display:grid;place-items:center;padding:0;border:0;background:transparent;color:var(--navy)}
+  .inline-scan svg {width:25px;height:25px}
   .search-clear {position:absolute;left:3px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;background:transparent;color:var(--navy);display:grid;place-items:center}
   .search-clear span {display:grid;place-items:center;width:23px;height:23px;border:1.5px solid currentColor;border-radius:50%;font:600 19px/1 Arial,sans-serif}
   .search .inp:placeholder-shown + .search-clear,.search:has(.inp:not(:placeholder-shown)) > svg {display:none}
@@ -639,6 +643,13 @@ function normalizeWaybill(value) {
 }
 function validWaybill(value) {
   return /^[A-Z0-9][A-Z0-9 ./_-]{0,99}$/.test(value) && !value.startsWith('SH-');
+}
+
+function scanWaybill(flow) {
+  return flow.scan('امسح باركود بوليصة الشحن', value => {
+    const code = normalizeWaybill(value);
+    return validWaybill(code) ? { ok: code } : { err: 'أدخل رقم بوليصة صحيحاً، حتى 100 حرف ورقم' };
+  }, false, true);
 }
 
 function parcelCard(p) {
@@ -1153,7 +1164,7 @@ function enhancedLoop(sc, onText, paused) {
 }
 
 /* ---------- flow engine (كمّل كل الخطوات أو X يلغي) ---------- */
-function openFlow(title, kind) {
+function openFlow(title, kind, cancelMessage = 'تم إلغاء العملية دون حفظ أي بيانات') {
   const epoch = sessionEpoch, actorUid = me?.uid;
   let cancelled = false, finished = false, scanner = null, scannerStart = null, pending = null, torchOn = false, rcTag = '';
   const ov = document.createElement('div');
@@ -1188,7 +1199,7 @@ function openFlow(title, kind) {
     if (!activeFlowClosers.size) document.body.classList.remove('noscroll');
   }
   activeFlowClosers.add(close);
-  ov.querySelector('.x').onclick = () => { const wasDone = finished; close(); if (!wasDone) toast('تم إلغاء العملية دون حفظ أي بيانات'); };
+  ov.querySelector('.x').onclick = () => { const wasDone = finished; close(); if (!wasDone && cancelMessage) toast(cancelMessage); };
 
   return {
     close, isCurrent,
@@ -1353,6 +1364,33 @@ function openFlow(title, kind) {
         els.forEach((el, i) => {
           if (fields[i].value != null) el.value = fields[i].value;
           el.addEventListener('input', chk);
+          if (fields[i].scan) {
+            const wrap = document.createElement('div');
+            wrap.className = 'scan-field';
+            el.before(wrap);
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'inline-scan';
+            trigger.setAttribute('aria-label','مسح باركود بوليصة الشحن');
+            trigger.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 9v6m3-6v6m3-6v6m3-6v6"/></svg>';
+            wrap.append(el,trigger);
+            trigger.onclick = async () => {
+              if (ov.inert || !isCurrent()) return;
+              ov.inert = true;
+              const reader = openFlow('مسح بوليصة الشحن', 'add', '');
+              try {
+                const code = await fields[i].scan(reader);
+                if (code && isCurrent()) {
+                  el.value = code;
+                  el.dispatchEvent(new Event('input', {bubbles:true}));
+                }
+              } finally {
+                if (reader.isCurrent()) await reader.close();
+                ov.inert = false;
+                if (isCurrent()) trigger.focus({preventScroll:true});
+              }
+            };
+          }
         });
         chk();
         setTimeout(() => els[0]?.focus(), 150);
@@ -1432,10 +1470,7 @@ async function flowAdd() {
   if (!r || !f.isCurrent()) return;
 
   f.step(2, 4);
-  const waybill = await f.scan('امسح باركود بوليصة الشحن', value => {
-    const code = normalizeWaybill(value);
-    return validWaybill(code) ? { ok: code } : { err: 'أدخل رقم بوليصة صحيحاً، حتى 100 حرف ورقم' };
-  }, false, true);
+  const waybill = await scanWaybill(f);
   if (!waybill || !f.isCurrent()) return;
 
   f.step(3, 4);
@@ -1539,7 +1574,7 @@ async function editParcel(p) {
   const fields = [
     {key:'receipt',label:'رقم وصل الأمانة',value:p.receipt},
     {key:'year',label:'السنة',value:p.year},
-    {key:'waybill',label:'بوليصة الشحن',value:p.waybill,optional:!p.waybill},
+    {key:'waybill',label:'بوليصة الشحن',value:p.waybill,optional:!p.waybill,scan:scanWaybill},
     {key:'shelf',label:'الرف',value:p.shelf},
     {key:'contents',label:'المحتويات',value:p.contents,multi:true},
     {key:'parcelCount',label:'عدد الطرود',value:parcelCount(p),number:true}
